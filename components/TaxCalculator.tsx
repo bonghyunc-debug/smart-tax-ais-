@@ -100,8 +100,8 @@ export default function TaxCalculator() {
     const setNested = (field: string, subField: string, value: any) => dispatch({ type: 'SET_NESTED', field, subField, value });
 
     const isPre1985 = useMemo(() => {
-        const targetDate = (state.acquisitionCause === 'gift_carryover' && state.origAcquisitionDate)
-            ? state.origAcquisitionDate 
+        const targetDate = (['inheritance', 'gift_carryover'].includes(state.acquisitionCause) && state.origAcquisitionDate)
+            ? state.origAcquisitionDate
             : state.acquisitionDate;
 
         if (!targetDate) return false;
@@ -145,17 +145,13 @@ export default function TaxCalculator() {
     }, [state.hasPriorDeclaration]);
 
     useEffect(() => {
-        const targetDate = (state.acquisitionCause === 'gift_carryover' && state.origAcquisitionDate)
-            ? state.origAcquisitionDate 
+        const targetDate = (['inheritance', 'gift_carryover'].includes(state.acquisitionCause) && state.origAcquisitionDate)
+            ? state.origAcquisitionDate
             : state.acquisitionDate;
 
-        if (targetDate) {
-            const acq = new Date(targetDate);
-            const refDate = new Date(TAX_LAW.LAND_CONVERSION_GRADE_DATE);
-            set('isPre1990', acq < refDate);
-        } else {
-            set('isPre1990', false);
-        }
+        const refDate = new Date(TAX_LAW.LAND_CONVERSION_GRADE_DATE);
+        const isBeforeGradeCutoff = targetDate ? new Date(targetDate) < refDate : false;
+        set('isPre1990', isBeforeGradeCutoff);
     }, [state.acquisitionDate, state.origAcquisitionDate, state.acquisitionCause]);
     
     useEffect(() => {
