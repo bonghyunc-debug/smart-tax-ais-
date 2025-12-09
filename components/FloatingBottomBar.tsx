@@ -14,7 +14,7 @@ export default function FloatingBottomBar({ result, onViewDetail }: FloatingBott
     if (result.totalImmediateBill <= 0 && result.localIncomeTax <= 0) return null;
 
     return (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-10 fade-in duration-500">
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-10 fade-in duration-500 lg:hidden">
             <div className="flex items-center gap-8 pl-8 pr-3 py-3 bg-slate-900/95 backdrop-blur-xl rounded-full shadow-2xl shadow-indigo-500/20 border border-slate-700/50 text-white min-w-[700px] justify-between ring-1 ring-white/10">
                 
                 {/* Main Total */}
