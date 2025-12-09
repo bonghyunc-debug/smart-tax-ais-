@@ -123,22 +123,57 @@ export const parseNumber = (str: any) => {
 
 export const isLandLike = (type: string) => ['토지', '자경/대토 농지'].includes(type);
 
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+const calcYearLengthFrom = (date: Date) => {
+  const nextYear = new Date(date);
+  nextYear.setFullYear(nextYear.getFullYear() + 1);
+  return Math.round((nextYear.getTime() - date.getTime()) / MS_PER_DAY);
+};
+
 export const calculatePeriod = (startStr: string, endStr: string) => {
   if (!startStr || !endStr) return { years: 0, days: 0, text: '0년 0일' };
   const start = new Date(startStr);
   const end = new Date(endStr);
-  
+
   if (isNaN(start.getTime()) || isNaN(end.getTime())) return { years: 0, days: 0, text: '날짜 오류' };
-  
+
   let years = end.getFullYear() - start.getFullYear();
-  const isBeforeBirthday = 
-    end.getMonth() < start.getMonth() || 
+  const isBeforeBirthday =
+    end.getMonth() < start.getMonth() ||
     (end.getMonth() === start.getMonth() && end.getDate() < start.getDate());
   if (isBeforeBirthday) years--;
-  
+
   const diffTime = Math.max(0, end.getTime() - start.getTime());
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-  return { years: Math.max(0, years), days: diffDays, text: `${Math.max(0, years)}년 ${diffDays % 365}일` };
+  const diffDays = Math.floor(diffTime / MS_PER_DAY);
+
+  const targetYears = Math.max(0, years);
+  let remainingDays = diffDays;
+  let computedYears = 0;
+  let cursor = new Date(start);
+
+  while (computedYears < targetYears) {
+    const yearLength = calcYearLengthFrom(cursor);
+    if (remainingDays < yearLength) break;
+    remainingDays -= yearLength;
+    cursor = new Date(cursor);
+    cursor.setFullYear(cursor.getFullYear() + 1);
+    computedYears++;
+  }
+
+  if (computedYears !== targetYears) {
+    remainingDays = diffDays;
+    computedYears = targetYears;
+    cursor = new Date(start);
+    for (let i = 0; i < computedYears; i++) {
+      const yearLength = calcYearLengthFrom(cursor);
+      remainingDays = Math.max(0, remainingDays - yearLength);
+      cursor = new Date(cursor);
+      cursor.setFullYear(cursor.getFullYear() + 1);
+    }
+  }
+
+  return { years: computedYears, days: remainingDays, text: `${computedYears}년 ${remainingDays}일` };
 };
 
 export const calculateDeadline = (yangdoDateStr: string, customHolidays: string[] = []) => {
