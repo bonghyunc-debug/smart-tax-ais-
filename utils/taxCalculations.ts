@@ -280,15 +280,21 @@ export function calculateAcquisitionPrice(props: TaxState, burdenRatio = 1) {
 
     const transferUnit = parseNumber(props.transferOfficialPrice);
     
-    if (isLandLike(props.assetType) && props.isPre1990) {
+    const acqDateToCheck = (['inheritance', 'gift_carryover'].includes(props.acquisitionCause) && props.origAcquisitionDate)
+        ? props.origAcquisitionDate
+        : props.acquisitionDate;
+    const acqDateObj = new Date(acqDateToCheck);
+    const gradeCutoffDate = new Date(TAX_LAW.LAND_CONVERSION_GRADE_DATE);
+    const date85 = new Date('1985-01-01');
+    const isValidAcqDate = acqDateToCheck && !isNaN(acqDateObj.getTime());
+    const isBeforeGradeCutoff = isValidAcqDate ? acqDateObj < gradeCutoffDate : false;
+    const isBefore85 = isValidAcqDate ? acqDateObj < date85 : false;
+
+    if (isLandLike(props.assetType) && isBeforeGradeCutoff) {
         const p90_1_1_unit = parseNumber(props.price1990Jan1);
         const v_acq_input = parseNumber(props.gradeAcq);
         const v_90_val = parseNumber(props.grade1990Aug30);
         const v_prev = parseNumber(props.gradePrev1990Aug30);
-
-        const acqDateObj = new Date(props.acquisitionDate);
-        const date85 = new Date('1985-01-01');
-        const isBefore85 = acqDateObj < date85;
 
         if (p90_1_1_unit > 0 && v_acq_input > 0 && v_90_val > 0 && v_prev > 0) {
             const val_90 = LAND_GRADE_TABLE.get(v_90_val);

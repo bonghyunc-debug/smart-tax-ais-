@@ -63,12 +63,7 @@ export default function TaxForm({ state, result, set, setNested, handlers, isPre
     };
 
     const handleOrigAcqDateChange = (val: string) => {
-        if (val && val < '1985-01-01') {
-            alert("1985년 1월 1일 이전에 취득한 부동산은 소득세법 시행령 제162조 제6항에 따라 1985년 1월 1일을 취득일로 간주합니다.");
-            set('origAcquisitionDate', '1985-01-01');
-        } else {
-            set('origAcquisitionDate', val);
-        }
+        set('origAcquisitionDate', val);
     };
 
     return (
