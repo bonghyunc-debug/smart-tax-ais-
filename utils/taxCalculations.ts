@@ -70,6 +70,13 @@ const getLTTDRateFromTable = (years: number, table: { minYears: number; maxYears
   return entry ? entry.rate : 0;
 };
 
+type ReliefType =
+  | 'none'
+  | 'self_farming_farmland'
+  | 'farmland_exchange'
+  | 'public_project_cash'
+  | 'public_project_replacement';
+
 // 양도소득세 법정 신고·납부기한 계산 시 고려할 국내 공휴일(고정일자 기반)
 const FIXED_PUBLIC_HOLIDAYS = [
   '01-01', // 신정
@@ -620,18 +627,50 @@ export function calculateTaxRate(base: number, years: number, props: TaxState) {
     return { tax: basicTax, rate: bracket.rate, desc: basicDesc, isHeavyTaxed: baseHeavyFlag };
 }
 
+const resolveReliefType = (props: TaxState): ReliefType => {
+    switch (props.taxExemptionType) {
+        case 'farm_8y':
+            return 'self_farming_farmland';
+        case 'farmland_exchange':
+            return 'farmland_exchange';
+        case 'public_cash_standard':
+            return 'public_project_cash';
+        case 'public_project_replacement':
+        case 'public_replacement':
+            return 'public_project_replacement';
+        default:
+            return 'none';
+    }
+};
+
 export function calculateExemptionLogic(tax: number, props: TaxState) {
     let amount = 0;
     let desc = '';
     let nongteukse = 0;
     // 1세대1주택 여부는 주택 수, 조정대상지역 여부 등 세법상 요건을 이 코드에서 검증하지 않고
     // 사용자가 입력/선택한 값(props.assetType 등)을 그대로 신뢰한다는 전제하에 계산만 수행한다.
-    switch (props.taxExemptionType) {
-        case 'farm_8y':
+
+    const reliefType = resolveReliefType(props);
+    const isCustomRate = props.taxExemptionType === 'custom';
+
+    if (isCustomRate) {
+        const r = parseNumber(props.customRate);
+        amount = Math.floor(tax * (r / 100));
+        desc = `직접입력 감면 (${r}%)`;
+        if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * 0.20);
+        return { amount, desc, nongteukse };
+    }
+
+    switch (reliefType) {
+        case 'self_farming_farmland':
             amount = Math.min(tax, TAX_LAW.FARM_YEARLY_LIMIT);
-            desc = '8년 자경/대토 감면';
+            desc = '8년 자경농지 감면';
             break;
-        case 'public_cash_standard': {
+        case 'farmland_exchange':
+            amount = Math.min(tax, TAX_LAW.FARM_YEARLY_LIMIT);
+            desc = '농지대토 감면';
+            break;
+        case 'public_project_cash': {
             const yangdoDate = props.yangdoDate || '1900-01-01';
             const isPost2025 = yangdoDate >= TAX_LAW.PUBLIC_CASH_RATE_CHANGE_DATE;
             const rate = isPost2025 ? 0.15 : 0.10;
@@ -641,13 +680,20 @@ export function calculateExemptionLogic(tax: number, props: TaxState) {
             if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * 0.20);
             break;
         }
-        case 'custom':
-            const r = parseNumber(props.customRate);
-            amount = Math.floor(tax * (r / 100));
-            desc = `직접입력 감면 (${r}%)`;
+        case 'public_project_replacement': {
+            const yangdoDate = props.yangdoDate || '1900-01-01';
+            const isPost2025 = yangdoDate >= TAX_LAW.PUBLIC_CASH_RATE_CHANGE_DATE;
+            const rate = isPost2025 ? 0.15 : 0.10;
+            amount = Math.floor(tax * rate);
+            desc = `공익사업 수용(대토) (${rate*100}%)`;
             if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * 0.20);
             break;
+        }
+        case 'none':
+        default:
+            break;
     }
+
     return { amount, desc, nongteukse };
 }
 
