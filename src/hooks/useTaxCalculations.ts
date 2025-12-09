@@ -9,6 +9,7 @@ import {
   isLandLike,
   parseNumber,
 } from '../../utils/taxCalculations';
+import { calcConvertedAcquisitionValue } from '../utils/landConversion';
 
 export function useTaxCalculations(
   state: TaxState,
@@ -86,9 +87,13 @@ export function useTaxCalculations(
         const val_90 = LAND_GRADE_TABLE.get(v_90);
         const val_prev = LAND_GRADE_TABLE.get(v_prev);
         const val_acq = LAND_GRADE_TABLE.get(v_acq_input);
-        const denominator = (val_90 + val_prev) / 2;
-        if (denominator > 0) {
-          const calcUnitPrice = Math.floor((p90_1_1_unit * val_acq) / denominator);
+        const calcUnitPrice = calcConvertedAcquisitionValue({
+          acqGrade: val_acq,
+          grade1990Aug30: val_90,
+          gradePrev1990Aug30: val_prev,
+          basePrice1990Jan1: p90_1_1_unit,
+        });
+        if (calcUnitPrice > 0) {
           set('unitOfficialPrice', calcUnitPrice);
         }
       }

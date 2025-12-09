@@ -1,5 +1,5 @@
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { 
     FileText, HelpCircle, Building2, Info, Gift, 
     Home, Building, TreePine, FileCheck, Tractor, Stamp,
@@ -10,6 +10,7 @@ import { TaxState, TaxResult } from '../types';
 import { Section, InputRow, NumberInput, commonInputClass, HelpTooltip, SelectionGrid } from './CommonComponents';
 import { formatNumber, parseNumber, isLandLike } from '../utils/taxCalculations';
 import { TAX_CONSTANTS } from '../src/constants/taxConstants';
+import { getEffectiveAcquisitionDate } from '../src/utils/dateUtils';
 
 interface TaxFormProps {
     state: TaxState;
@@ -50,6 +51,30 @@ export default function TaxForm({ state, result, set, setNested, handlers, isPre
     const isBurdenGift = state.yangdoCause === 'burden_gift';
     const isInheritanceOrGift = ['inheritance', 'gift', 'gift_carryover'].includes(state.acquisitionCause);
     const isGiftCarryover = state.acquisitionCause === 'gift_carryover';
+
+    const effectiveAcquisitionDate = useMemo(() => {
+        if (!state.acquisitionDate) return '';
+        const effective = getEffectiveAcquisitionDate(new Date(state.acquisitionDate));
+        return effective.toISOString().split('T')[0];
+    }, [state.acquisitionDate]);
+
+    const effectiveOriginalAcqDate = useMemo(() => {
+        if (!state.origAcquisitionDate) return '';
+        const effective = getEffectiveAcquisitionDate(new Date(state.origAcquisitionDate));
+        return effective.toISOString().split('T')[0];
+    }, [state.origAcquisitionDate]);
+
+    const isDeemedAcqDateApplied = !!(
+        effectiveAcquisitionDate &&
+        state.acquisitionDate &&
+        effectiveAcquisitionDate !== state.acquisitionDate
+    );
+
+    const isOrigDeemedApplied = !!(
+        effectiveOriginalAcqDate &&
+        state.origAcquisitionDate &&
+        effectiveOriginalAcqDate !== state.origAcquisitionDate
+    );
     
     // 상속이거나 이월과세 증여인 경우 당초취득일 입력 필요
     const showOrigDateInput = ['gift_carryover', 'inheritance'].includes(state.acquisitionCause);
@@ -370,9 +395,14 @@ export default function TaxForm({ state, result, set, setNested, handlers, isPre
                              }/>
                          </label>
                          <input type="date" value={state.acquisitionDate} onChange={e=>handleAcqDateChange(e.target.value)} className={commonInputClass}/>
-                         {state.acquisitionDate && state.acquisitionDate < TAX_CONSTANTS.OLD_ASSET_CONVERSION.PRE_1985 && (
-                            <p className="text-xs text-amber-600 mt-2 font-medium bg-amber-50 inline-block px-2 py-1 rounded">※ 1985.1.1. 의제취득일 적용</p>
-                         )}
+                          {state.acquisitionDate && state.acquisitionDate < TAX_CONSTANTS.OLD_ASSET_CONVERSION.PRE_1985 && (
+                             <p className="text-xs text-amber-600 mt-2 font-medium bg-amber-50 inline-block px-2 py-1 rounded">※ 1985.1.1. 의제취득일 적용</p>
+                          )}
+                          {isDeemedAcqDateApplied && (
+                             <p className="text-xs text-slate-600 mt-2 font-medium">
+                                 실제 취득일: {state.acquisitionDate} / 세법상 취득일(의제): {effectiveAcquisitionDate}
+                             </p>
+                          )}
                     </div>
                 </div>
 
@@ -396,24 +426,29 @@ export default function TaxForm({ state, result, set, setNested, handlers, isPre
                                 </div>
                             }/>
                         </label>
-                        {isGiftCarryover && (
-                            <div className="mb-4">
-                                <p className="text-xs text-slate-500 mb-2 font-semibold">당초 증여자의 취득원인 선택</p>
-                                <SelectionGrid
-                                    cols={3}
-                                    selectedId={state.origAcquisitionCause}
-                                    onChange={(id) => set('origAcquisitionCause', id)}
-                                    options={[
-                                        { id: 'sale', label: '매매', icon: <Briefcase size={16}/> },
-                                        { id: 'inheritance', label: '상속', icon: <FileText size={16}/> },
-                                        { id: 'gift', label: '증여', icon: <Gift size={16}/> }
-                                    ]}
-                                />
-                            </div>
-                        )}
-                        <input type="date" value={state.origAcquisitionDate} onChange={e=>handleOrigAcqDateChange(e.target.value)} className={commonInputClass}/>
-                    </div>
-                )}
+                          {isGiftCarryover && (
+                              <div className="mb-4">
+                                  <p className="text-xs text-slate-500 mb-2 font-semibold">당초 증여자의 취득원인 선택</p>
+                                  <SelectionGrid
+                                      cols={3}
+                                      selectedId={state.origAcquisitionCause}
+                                      onChange={(id) => set('origAcquisitionCause', id)}
+                                      options={[
+                                          { id: 'sale', label: '매매', icon: <Briefcase size={16}/> },
+                                          { id: 'inheritance', label: '상속', icon: <FileText size={16}/> },
+                                          { id: 'gift', label: '증여', icon: <Gift size={16}/> }
+                                      ]}
+                                  />
+                              </div>
+                          )}
+                          <input type="date" value={state.origAcquisitionDate} onChange={e=>handleOrigAcqDateChange(e.target.value)} className={commonInputClass}/>
+                          {isOrigDeemedApplied && (
+                              <p className="text-xs text-slate-600 mt-2 font-medium">
+                                  실제 취득일: {state.origAcquisitionDate} / 세법상 취득일(의제): {effectiveOriginalAcqDate}
+                              </p>
+                          )}
+                      </div>
+                  )}
 
                 {isBurdenGift && (
                     <div className="mt-8 p-6 bg-purple-50 border border-purple-100 rounded-2xl animate-in shadow-sm">
