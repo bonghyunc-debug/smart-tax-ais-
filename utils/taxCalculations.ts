@@ -1,6 +1,8 @@
 
 import { TaxState, TaxResult } from '../types';
 import { TAX_CONSTANTS } from '../src/constants/taxConstants';
+import { getEffectiveAcquisitionDate } from '../src/utils/dateUtils';
+import { calcConvertedAcquisitionValue } from '../src/utils/landConversion';
 
 export const TAX_BRACKETS_2022 = [
   { upTo: 12_000_000, rate: 6, deduction: 0 },
@@ -330,17 +332,21 @@ export function calculateAcquisitionPrice(props: TaxState, burdenRatio = 1) {
             const val_90 = LAND_GRADE_TABLE.get(v_90_val);
             const val_prev = LAND_GRADE_TABLE.get(v_prev);
             const val_acq = LAND_GRADE_TABLE.get(v_acq_input);
-            const denominator = (val_90 + val_prev) / 2;
+            const convertedUnit = calcConvertedAcquisitionValue({
+                acqGrade: val_acq,
+                grade1990Aug30: val_90,
+                gradePrev1990Aug30: val_prev,
+                basePrice1990Jan1: p90_1_1_unit,
+            });
 
-            if (denominator > 0) {
-                const acq_calc_unit_price = (p90_1_1_unit * val_acq) / denominator;
-                const total_acq_base = Math.floor(acq_calc_unit_price * landArea);
-                
-                basePriceForExpense = total_acq_base; 
+            if (convertedUnit > 0) {
+                const totalAcqBase = Math.floor(convertedUnit * landArea);
+
+                basePriceForExpense = totalAcqBase;
 
                 const totalTransferOfficial = transferUnit;
 
-                const rawPrice = totalTransferOfficial > 0 ? Math.floor(yangdo * (total_acq_base / totalTransferOfficial)) : 0;
+                const rawPrice = totalTransferOfficial > 0 ? Math.floor(yangdo * (totalAcqBase / totalTransferOfficial)) : 0;
                 const price = Math.floor(rawPrice * safeBurdenRatio);
                 let desc = isBefore85 ? '환산(85.1.1 의제등급)' : '환산(토지등급)';
                 return { price, basePriceForExpense, methodDesc: desc };
@@ -497,20 +503,27 @@ export function calculateExemptionLogic(tax: number, props: TaxState) {
 }
 
 export function calculateTax(props: TaxState): TaxResult {
+  const applyDeemedDate = (dateStr?: string) => {
+      if (!dateStr) return dateStr;
+      const parsed = new Date(dateStr);
+      if (isNaN(parsed.getTime())) return dateStr;
+      return getEffectiveAcquisitionDate(parsed).toISOString().split('T')[0];
+  };
+
   // 1. 세율 적용을 위한 보유기간 (상속, 이월과세 모두 피상속인/증여자 당초 취득일 합산)
   let startDateForRate = props.acquisitionDate;
   if ((['inheritance', 'gift_carryover'].includes(props.acquisitionCause)) && props.origAcquisitionDate) {
       startDateForRate = props.origAcquisitionDate;
   }
-  const holdingForRate = calculatePeriod(startDateForRate, props.yangdoDate);
+  const holdingForRate = calculatePeriod(applyDeemedDate(startDateForRate) || '', props.yangdoDate);
 
   // 2. 장기보유특별공제를 위한 보유기간 (상속은 상속개시일, 이월과세는 당초취득일 기준)
-  let startDateForDed = props.acquisitionDate; 
+  let startDateForDed = props.acquisitionDate;
   if (props.acquisitionCause === 'gift_carryover' && props.origAcquisitionDate) {
       startDateForDed = props.origAcquisitionDate;
   }
-  
-  const holdingForDed = calculatePeriod(startDateForDed, props.yangdoDate);
+
+  const holdingForDed = calculatePeriod(applyDeemedDate(startDateForDed) || '', props.yangdoDate);
 
   // Burden Gift Logic
   const isBurdenGift = props.yangdoCause === 'burden_gift';
