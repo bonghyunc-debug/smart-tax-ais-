@@ -41,14 +41,9 @@ export const Pre1990CalcModal = ({ onClose, state, onChange }: { onClose: () => 
         onChange('officialPrice', totalAcq);
 
         if (isInheritanceOrGift) {
-            // For Inheritance/Gift, we only need the official price.
-            // Force method to official so calculation uses this value.
+            // 상속·증여 취득분도 토지등급 환산으로 1990.1.1 현재 기준시가(취득시 기준시가)를 산정함.
+            // 환산취득가액 대신 기준시가 방식을 고정 적용한다.
             onChange('acqPriceMethod', 'official');
-            // Clear transfer side values to avoid confusion, or leave them as they don't impact calculation if logic is correct
-            onChange('unitTransferOfficialPrice', '');
-            onChange('transferOfficialPrice', '');
-            
-            // Also set 'maega' to reflect this is the value being used, for UX consistency if they switch tabs
             onChange('maega', totalAcq);
         } else {
             // Apply Transfer Side for Converted Price
@@ -84,20 +79,37 @@ export const Pre1990CalcModal = ({ onClose, state, onChange }: { onClose: () => 
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
             <div className="bg-white rounded-2xl shadow-2xl w-[800px] overflow-hidden animate-in zoom-in duration-200 my-8">
                 <div className="bg-slate-900 px-6 py-4 flex justify-between items-center text-white">
-                    <h3 className="font-bold flex items-center gap-2 text-lg">
-                        <Calculator size={20}/> 
-                        {isInheritanceOrGift ? '취득당시 기준시가 계산 (1990.8.30 이전)' : '1990.8.30. 이전 취득 토지 환산'}
-                    </h3>
+                    <div>
+                        <h3 className="font-bold flex items-center gap-2 text-lg">
+                            <Calculator size={20}/>
+                            {isInheritanceOrGift ? '상속·증여 취득(1990.8.30. 이전) 토지 기준시가 계산' : '1990.8.30. 이전 취득 토지 환산'}
+                        </h3>
+                        <p className="text-[11px] text-slate-200 mt-1 font-medium">
+                            {isInheritanceOrGift
+                                ? '상속·증여 취득분도 토지등급을 입력해 1990.1.1 기준시가(취득시 기준시가)를 산정합니다.'
+                                : '양도·취득 시 기준시가를 이용해 환산취득가액을 산정합니다.'}
+                        </p>
+                    </div>
                     <button onClick={onClose} className="hover:bg-slate-700 p-1 rounded transition-colors"><X size={20}/></button>
                 </div>
-                
+
                 <div className="p-6 space-y-8 bg-slate-50/50 max-h-[70vh] overflow-y-auto custom-scrollbar">
-                    
+
+                    {isInheritanceOrGift && (
+                        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4 text-sm text-indigo-900 flex items-start gap-2">
+                            <Info size={16} className="mt-0.5" />
+                            <div className="space-y-1">
+                                <p className="font-bold">상속·증여라도 토지등급을 입력해 1990.1.1. 기준시가를 산정합니다.</p>
+                                <p className="text-indigo-800/80">1990.8.30. 이전 취득 토지는 취득원인과 무관하게 토지등급 환산 방식으로 취득시 기준시가를 계산하며, 양도시 기준시가 입력 영역만 생략됩니다.</p>
+                            </div>
+                        </div>
+                    )}
+
                     {/* 1. 기본 정보 및 양도시 기준시가 (Hide for Inheritance/Gift) */}
                     {!isInheritanceOrGift && (
                         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
                             <h4 className="text-sm font-bold text-slate-800 mb-4 border-b pb-2 flex items-center gap-2">
-                                <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-xs">1</span> 
+                                <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center text-xs">1</span>
                                 양도시 기준시가 계산
                             </h4>
                             <div className="grid grid-cols-2 gap-4 mb-4">
@@ -129,6 +141,17 @@ export const Pre1990CalcModal = ({ onClose, state, onChange }: { onClose: () => 
                              취득시 기준시가 상세 계산 (의제취득일 적용)
                         </h4>
                         
+                        <div className="bg-slate-100/80 border border-slate-200 rounded-lg p-3 text-[13px] text-slate-700 mb-4 flex gap-2 items-start">
+                            <AlertTriangle size={14} className="text-slate-500 mt-0.5"/>
+                            <div className="space-y-1">
+                                <p className="font-bold text-slate-900">1990.8.30. 이전 취득 토지는 취득원인과 무관하게 토지등급 환산을 통해 취득시 기준시가를 계산합니다.</p>
+                                <ul className="list-disc pl-4 space-y-1">
+                                    <li>매매 취득: 환산취득가액(기준시가 비율)을 적용하기 위해 토지등급을 모두 입력합니다.</li>
+                                    <li>상속·증여 취득: 실지거래가액이 없으므로 토지등급으로 산정한 취득시 기준시가(1990.1.1 환산가)를 사용합니다.</li>
+                                </ul>
+                            </div>
+                        </div>
+
                         <div className="grid grid-cols-2 gap-4 mb-4 items-start">
                             <NumberInput label="1990.1.1. 기준시가(㎡)" value={state.price1990Jan1} onChange={(v:any)=>onChange('price1990Jan1', v)} suffix="원" />
                             <GradeInput label="취득당시 등급" value={state.gradeAcq} field="gradeAcq" />
