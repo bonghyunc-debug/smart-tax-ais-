@@ -33,6 +33,34 @@ export const TAX_LAW = {
   LAND_CONVERSION_GRADE_DATE: '1990-08-30'
 };
 
+// 양도소득세 법정 신고·납부기한 계산 시 고려할 국내 공휴일(고정일자 기반)
+const FIXED_PUBLIC_HOLIDAYS = [
+  '01-01', // 신정
+  '03-01', // 삼일절
+  '05-01', // 근로자의 날 (비공휴일이지만 관행적으로 납부기한 연장 반영)
+  '05-05', // 어린이날
+  '06-06', // 현충일
+  '08-15', // 광복절
+  '10-03', // 개천절
+  '10-09', // 한글날
+  '12-25'  // 성탄절
+];
+
+// 음력 기반 설/추석의 양력 일자를 연도별로 수동 반영 (주요 신고 연도 범위)
+const LUNAR_HOLIDAY_MAP: Record<number, string[]> = {
+  2023: ['2023-01-21', '2023-01-22', '2023-01-23', '2023-09-28', '2023-09-29', '2023-09-30'],
+  2024: ['2024-02-09', '2024-02-10', '2024-02-11', '2024-02-12', '2024-09-16', '2024-09-17', '2024-09-18'],
+  2025: ['2025-01-28', '2025-01-29', '2025-01-30', '2025-10-06', '2025-10-07', '2025-10-08']
+};
+
+const buildHolidaySet = (year: number, customHolidays: string[]) => {
+    const set = new Set<string>();
+    FIXED_PUBLIC_HOLIDAYS.forEach(md => set.add(`${year}-${md}`));
+    (LUNAR_HOLIDAY_MAP[year] || []).forEach(d => set.add(d));
+    customHolidays.forEach(d => set.add(d));
+    return set;
+};
+
 // DO NOT MODIFY THIS TABLE - STRICTLY FIXED BY USER REQUEST
 // 토지등급가액표 (등급 1 ~ 365) - 절대 수정 금지
 export const LAND_GRADE_DB = [
@@ -113,23 +141,26 @@ export const calculatePeriod = (startStr: string, endStr: string) => {
   return { years: Math.max(0, years), days: diffDays, text: `${Math.max(0, years)}년 ${diffDays % 365}일` };
 };
 
-export const calculateDeadline = (yangdoDateStr: string) => {
+export const calculateDeadline = (yangdoDateStr: string, customHolidays: string[] = []) => {
   if (!yangdoDateStr) return '';
   const date = new Date(yangdoDateStr);
   if (isNaN(date.getTime())) return '';
 
-  const targetMonth = date.getMonth() + 2; 
+  // 원칙: 양도일이 속하는 달의 말일부터 2개월 뒤 말일까지 신고·납부 (소득세법 §105, 국세기본법 §26의3)
+  const targetMonth = date.getMonth() + 2;
   const year = date.getFullYear() + Math.floor(targetMonth / 12);
-  const month = targetMonth % 12; 
+  const month = targetMonth % 12;
   const lastDay = new Date(year, month + 1, 0);
-  
+
   let deadline = lastDay;
   while (true) {
+    const holidays = buildHolidaySet(deadline.getFullYear(), customHolidays);
+    const iso = deadline.toISOString().split('T')[0];
     const day = deadline.getDay();
-    const isWeekend = day === 0 || day === 6; 
-    const isLaborDay = deadline.getMonth() === 4 && deadline.getDate() === 1;
+    const isWeekend = day === 0 || day === 6;
+    const isHoliday = holidays.has(iso);
 
-    if (isWeekend || isLaborDay) {
+    if (isWeekend || isHoliday) {
       deadline.setDate(deadline.getDate() + 1);
     } else {
       break;
@@ -180,6 +211,7 @@ export function calculatePenaltyDetails(
   let reportDesc = '';
 
   if (isNongteukse) {
+      // 농어촌특별세법: 신고불성실가산세는 면제되지만 납부지연가산세는 별도로 계산
       reportPenaltyRate = 0;
       reportDesc = '면제(농어촌특별세법)';
   } else {
@@ -224,23 +256,26 @@ export function calculatePenaltyDetails(
   return { total, report: reportPenalty, delay: delayPenalty, desc: fullDesc, delayDays, reportDesc, delayDesc };
 }
 
-export function calculateAcquisitionPrice(props: TaxState) {
+export function calculateAcquisitionPrice(props: TaxState, burdenRatio = 1) {
     const yangdo = parseNumber(props.yangdoPrice);
     const acqUnit = parseNumber(props.officialPrice);
     const landArea = parseNumber(props.landArea);
-    
+    const safeBurdenRatio = Math.min(1, Math.max(0, Number.isFinite(burdenRatio) ? burdenRatio : 0));
+
     let basePriceForExpense = acqUnit;
 
     if (props.acqPriceMethod === 'actual') {
-        const p = parseNumber(props.acqPriceActual.maega) + 
-                  parseNumber(props.acqPriceActual.acqTax) + 
+        const basePrice = parseNumber(props.acqPriceActual.maega) +
+                  parseNumber(props.acqPriceActual.acqTax) +
                   parseNumber(props.acqPriceActual.other) + // Updated: use 'other'
                   parseNumber(props.acqPriceActual.acqBrokerage);
-        return { price: p, basePriceForExpense, methodDesc: '실지취득가액' };
+        const p = Math.floor(basePrice * safeBurdenRatio);
+        return { price: p, basePriceForExpense: basePrice, methodDesc: '실지취득가액' };
     }
 
     if (props.acqPriceMethod === 'official') {
-        return { price: acqUnit, basePriceForExpense, methodDesc: '기준시가(안분전)' };
+        const price = Math.floor(acqUnit * safeBurdenRatio);
+        return { price, basePriceForExpense, methodDesc: '기준시가(안분전)' };
     }
 
     const transferUnit = parseNumber(props.transferOfficialPrice);
@@ -267,16 +302,18 @@ export function calculateAcquisitionPrice(props: TaxState) {
                 
                 basePriceForExpense = total_acq_base; 
 
-                const totalTransferOfficial = transferUnit; 
-                
-                const price = totalTransferOfficial > 0 ? Math.floor(yangdo * (total_acq_base / totalTransferOfficial)) : 0;
+                const totalTransferOfficial = transferUnit;
+
+                const rawPrice = totalTransferOfficial > 0 ? Math.floor(yangdo * (total_acq_base / totalTransferOfficial)) : 0;
+                const price = Math.floor(rawPrice * safeBurdenRatio);
                 let desc = isBefore85 ? '환산(85.1.1 의제등급)' : '환산(토지등급)';
                 return { price, basePriceForExpense, methodDesc: desc };
             }
         }
     }
 
-    const price = transferUnit > 0 ? Math.floor(yangdo * (acqUnit / transferUnit)) : 0;
+    const rawPrice = transferUnit > 0 ? Math.floor(yangdo * (acqUnit / transferUnit)) : 0;
+    const price = Math.floor(rawPrice * safeBurdenRatio);
     return { price, basePriceForExpense: acqUnit, methodDesc: '환산취득가액(기준시가비율)' };
 }
 
@@ -407,6 +444,7 @@ export function calculateExemptionLogic(tax: number, props: TaxState) {
             const yangdoDate = props.yangdoDate || '1900-01-01';
             const isPost2025 = yangdoDate >= TAX_LAW.PUBLIC_CASH_RATE_CHANGE_DATE;
             const rate = isPost2025 ? 0.15 : 0.10;
+            // 공익사업 수용(현금 보상) 감면율: 2024.12.31.까지 10%, 2025.01.01. 이후 15% (소득세법 §104의3 및 부칙)
             amount = Math.floor(tax * rate);
             desc = `공익사업 수용(현금) (${rate*100}%)`;
             if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * 0.20);
@@ -448,13 +486,16 @@ export function calculateTax(props: TaxState): TaxResult {
       burdenRatio = Math.min(1, debtAmount / giftValue);
   }
 
-  const acqData = calculateAcquisitionPrice(props);
+  const acqData = calculateAcquisitionPrice(props, burdenRatio);
   const autoDeduction = Math.floor(acqData.basePriceForExpense * 0.03 * burdenRatio);
   
   let expense = 0;
   let expenseDesc = '';
   let appliedAcqPrice = acqData.price;
   let appliedAcqMethodDesc = acqData.methodDesc;
+
+  const giftTaxPaid = parseNumber(props.giftTaxPaid);
+  const isGiftAcquisition = ['gift', 'gift_carryover'].includes(props.acquisitionCause);
   
   const actualExpenseSum = parseNumber(props.expenseActual.repair) + 
                            parseNumber(props.expenseActual.sellBrokerage) + 
@@ -464,7 +505,7 @@ export function calculateTax(props: TaxState): TaxResult {
       if (props.useActualExpenseWithConverted) {
           expense = Math.floor(actualExpenseSum * burdenRatio);
           expenseDesc = '실제 필요경비 (취득가액 대체)';
-          appliedAcqPrice = 0; 
+          appliedAcqPrice = 0;
           appliedAcqMethodDesc = '적용 배제 (실비 대체)';
       } else {
           expense = autoDeduction;
@@ -473,23 +514,23 @@ export function calculateTax(props: TaxState): TaxResult {
   } else if (props.acqPriceMethod === 'official') {
       expense = autoDeduction;
       expenseDesc = '개산공제 (취득당시 기준시가의 3%)';
-      appliedAcqPrice = Math.floor(acqData.price * burdenRatio);
+      appliedAcqPrice = acqData.price;
       appliedAcqMethodDesc = '기준시가';
   } else {
       expense = Math.floor(actualExpenseSum * burdenRatio);
       expenseDesc = '실제 필요경비';
-      appliedAcqPrice = Math.floor(acqData.price * burdenRatio);
+      appliedAcqPrice = acqData.price;
+  }
+
+  if (isGiftAcquisition && giftTaxPaid > 0) {
+      // 소득세법 시행령 제97조 제1항 제2호: 증여재산의 가액 산정 시 납부한 증여세를 필요경비로 가산
+      expense += giftTaxPaid;
+      expenseDesc += `${expenseDesc ? '; ' : ''}증여세 납부액 가산`;
   }
 
   if (isBurdenGift) {
       expenseDesc += ` (안분율 ${(burdenRatio * 100).toFixed(2)}% 적용)`;
-      if (props.acqPriceMethod === 'actual') {
-          appliedAcqMethodDesc += ` (안분율 ${(burdenRatio * 100).toFixed(2)}%)`;
-      } else if (props.acqPriceMethod === 'official') {
-          if (props.giftEvaluationMethod === 'official') {
-              appliedAcqMethodDesc += ` (안분율 ${(burdenRatio * 100).toFixed(2)}%)`;
-          }
-      }
+      appliedAcqMethodDesc += ` (안분율 ${(burdenRatio * 100).toFixed(2)}% 적용)`;
   }
 
   const yangdoPrice = parseNumber(props.yangdoPrice);
@@ -501,18 +542,14 @@ export function calculateTax(props: TaxState): TaxResult {
 
   if (props.assetType === '1세대1주택_고가주택') {
       // 고가주택 비과세 계산 (9억->12억 초과분만 과세)
-      if (isBurdenGift) {
-          if (giftValue <= highPriceLimit) {
-              taxableGain = 0; 
-          } else if (giftValue > 0) {
-              taxableGain = Math.floor(rawGain * ((giftValue - highPriceLimit) / giftValue));
-          }
-      } else {
-          if (yangdoPrice <= highPriceLimit) {
-              taxableGain = 0; 
-          } else if (yangdoPrice > 0) {
-              taxableGain = Math.floor(rawGain * ((yangdoPrice - highPriceLimit) / yangdoPrice));
-          }
+      // 소득세법 §89 제1항 제3호 가목: 실제 양도가액(시가)을 기준으로 12억원 초과분만 과세
+      // 부담부증여라고 하더라도 과세대상 gain 안분은 실제 양도가액(채무인수 포함) 기준으로 계산
+      const denominator = yangdoPrice > 0 ? yangdoPrice : 0;
+
+      if (denominator <= highPriceLimit && denominator > 0) {
+          taxableGain = 0;
+      } else if (denominator > 0) {
+          taxableGain = Math.floor(rawGain * ((denominator - highPriceLimit) / denominator));
       }
       taxExemptGain = rawGain - taxableGain;
   }
@@ -573,7 +610,8 @@ export function calculateTax(props: TaxState): TaxResult {
   const decidedTax = Math.max(0, taxResult.tax - exemption.amount);
 
   // Construction Penalty Auto-Calculation
-  // Logic: Building Type + Construction Cause + Under 5 Years + Converted Price
+  // Logic: 건축물 신축 후 5년 이내 환산가액 사용 시 가산세(취득가액의 5%) 부과
+  // 근거: 소득세법 시행령 제162조 제6항(건축물 신축 후 5년 이내 환산가액 사용 제한) 해석 기준 예시
   let constructionPenalty = 0;
   const isBuilding = ['일반주택', '1세대1주택_고가주택', '상가/건물'].includes(props.assetType);
   const isConstruction = props.acquisitionCause === 'construction';
@@ -586,9 +624,9 @@ export function calculateTax(props: TaxState): TaxResult {
       const yangdoD = new Date(props.yangdoDate);
       const limitD = new Date(acqD);
       limitD.setFullYear(limitD.getFullYear() + 5);
-      
-      // 양도일이 5년 되는 날보다 작거나 같아야 함 (5년 이내)
-      isUnder5Years = yangdoD <= limitD;
+
+      // 양도일이 5년 되는 날 이전까지만 가산세 대상 (소득세법 시행령 제162조제6항 해석)
+      isUnder5Years = yangdoD < limitD;
   }
 
   if (isBuilding && isConstruction && isConverted && isUnder5Years) {

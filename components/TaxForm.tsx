@@ -62,6 +62,15 @@ export default function TaxForm({ state, result, set, setNested, handlers, isPre
         }
     };
 
+    const handleOrigAcqDateChange = (val: string) => {
+        if (val && val < '1985-01-01') {
+            alert("1985년 1월 1일 이전에 취득한 부동산은 소득세법 시행령 제162조 제6항에 따라 1985년 1월 1일을 취득일로 간주합니다.");
+            set('origAcquisitionDate', '1985-01-01');
+        } else {
+            set('origAcquisitionDate', val);
+        }
+    };
+
     return (
         <div className="space-y-8 animate-in">
             <Section title="신고 유형 및 기한" number={1}>
@@ -386,7 +395,22 @@ export default function TaxForm({ state, result, set, setNested, handlers, isPre
                                 </div>
                             }/>
                         </label>
-                        <input type="date" value={state.origAcquisitionDate} onChange={e=>set('origAcquisitionDate', e.target.value)} className={commonInputClass}/>
+                        {isGiftCarryover && (
+                            <div className="mb-4">
+                                <p className="text-xs text-slate-500 mb-2 font-semibold">당초 증여자의 취득원인 선택</p>
+                                <SelectionGrid
+                                    cols={3}
+                                    selectedId={state.origAcquisitionCause}
+                                    onChange={(id) => set('origAcquisitionCause', id)}
+                                    options={[
+                                        { id: 'sale', label: '매매', icon: <Briefcase size={16}/> },
+                                        { id: 'inheritance', label: '상속', icon: <FileText size={16}/> },
+                                        { id: 'gift', label: '증여', icon: <Gift size={16}/> }
+                                    ]}
+                                />
+                            </div>
+                        )}
+                        <input type="date" value={state.origAcquisitionDate} onChange={e=>handleOrigAcqDateChange(e.target.value)} className={commonInputClass}/>
                     </div>
                 )}
 
@@ -483,9 +507,9 @@ export default function TaxForm({ state, result, set, setNested, handlers, isPre
                         </div>
                         
                         <div className="flex bg-white rounded-xl p-1.5 border border-slate-200 shadow-sm w-full sm:w-auto">
-                            {(state.yangdoCause === 'burden_gift' && state.giftEvaluationMethod === 'official' 
-                                ? [{id:'official', label:'기준시가'}] 
-                                : [{id:'actual', label:'실지거래가액'}, {id:'converted', label:'환산취득가액'}]
+                            {(state.yangdoCause === 'burden_gift' && state.giftEvaluationMethod === 'official'
+                                ? [{id:'official', label:'기준시가'}]
+                                : [{id:'actual', label:'실지거래가액'}, {id:'converted', label:'환산취득가액'}, {id:'official', label:'기준시가'}]
                             ).map(m => (
                                 <button 
                                     key={m.id} 
