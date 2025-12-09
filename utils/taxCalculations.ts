@@ -1,5 +1,6 @@
 
 import { TaxState, TaxResult } from '../types';
+import { TAX_CONSTANTS } from '../src/constants/taxConstants';
 
 export const TAX_BRACKETS_2022 = [
   { upTo: 12_000_000, rate: 6, deduction: 0 },
@@ -26,10 +27,10 @@ export const TAX_BRACKETS_2023 = [
 export const TAX_LAW = {
   HIGH_PRICE_LIMIT: 1_200_000_000, // 2021.12.08 이후 양도분 12억원
   FARM_YEARLY_LIMIT: 100_000_000,
-  BASIC_DEDUCTION: 2_500_000,
+  BASIC_DEDUCTION: TAX_CONSTANTS.BASE_DEDUCTION,
   LATE_INTEREST_RATE: 0.00022, // 납부지연가산세 1일 0.022%
   PUBLIC_CASH_RATE_CHANGE_DATE: '2025-01-01',
-  LAND_CONVERSION_PRE_1985_DEEMED_ACQ_DATE: '1985-01-01',
+  LAND_CONVERSION_PRE_1985_DEEMED_ACQ_DATE: TAX_CONSTANTS.OLD_ASSET_CONVERSION.PRE_1985,
   LAND_CONVERSION_GRADE_DATE: '1990-08-30'
 };
 
@@ -322,7 +323,7 @@ export function calculateAcquisitionPrice(props: TaxState, burdenRatio = 1) {
         const v_prev = parseNumber(props.gradePrev1990Aug30);
 
         const acqDateObj = new Date(props.acquisitionDate);
-        const date85 = new Date('1985-01-01');
+        const date85 = new Date(TAX_CONSTANTS.OLD_ASSET_CONVERSION.PRE_1985);
         const isBefore85 = acqDateObj < date85;
 
         if (p90_1_1_unit > 0 && v_acq_input > 0 && v_90_val > 0 && v_prev > 0) {

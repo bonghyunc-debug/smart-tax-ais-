@@ -9,6 +9,7 @@ import {
 import { TaxState, TaxResult } from '../types';
 import { Section, InputRow, NumberInput, commonInputClass, HelpTooltip, SelectionGrid } from './CommonComponents';
 import { formatNumber, parseNumber, isLandLike } from '../utils/taxCalculations';
+import { TAX_CONSTANTS } from '../src/constants/taxConstants';
 
 interface TaxFormProps {
     state: TaxState;
@@ -54,18 +55,18 @@ export default function TaxForm({ state, result, set, setNested, handlers, isPre
     const showOrigDateInput = ['gift_carryover', 'inheritance'].includes(state.acquisitionCause);
 
     const handleAcqDateChange = (val: string) => {
-        if (val && val < '1985-01-01') {
+        if (val && val < TAX_CONSTANTS.OLD_ASSET_CONVERSION.PRE_1985) {
             alert("1985년 1월 1일 이전에 취득한 부동산은 소득세법 시행령 제162조 제6항에 따라 1985년 1월 1일을 취득일로 간주합니다.");
-            set('acquisitionDate', '1985-01-01');
+            set('acquisitionDate', TAX_CONSTANTS.OLD_ASSET_CONVERSION.PRE_1985);
         } else {
             set('acquisitionDate', val);
         }
     };
 
     const handleOrigAcqDateChange = (val: string) => {
-        if (val && val < '1985-01-01') {
+        if (val && val < TAX_CONSTANTS.OLD_ASSET_CONVERSION.PRE_1985) {
             alert("1985년 1월 1일 이전에 취득한 부동산은 소득세법 시행령 제162조 제6항에 따라 1985년 1월 1일을 취득일로 간주합니다.");
-            set('origAcquisitionDate', '1985-01-01');
+            set('origAcquisitionDate', TAX_CONSTANTS.OLD_ASSET_CONVERSION.PRE_1985);
         } else {
             set('origAcquisitionDate', val);
         }
@@ -369,7 +370,7 @@ export default function TaxForm({ state, result, set, setNested, handlers, isPre
                              }/>
                          </label>
                          <input type="date" value={state.acquisitionDate} onChange={e=>handleAcqDateChange(e.target.value)} className={commonInputClass}/>
-                         {state.acquisitionDate && state.acquisitionDate < '1985-01-01' && (
+                         {state.acquisitionDate && state.acquisitionDate < TAX_CONSTANTS.OLD_ASSET_CONVERSION.PRE_1985 && (
                             <p className="text-xs text-amber-600 mt-2 font-medium bg-amber-50 inline-block px-2 py-1 rounded">※ 1985.1.1. 의제취득일 적용</p>
                          )}
                     </div>

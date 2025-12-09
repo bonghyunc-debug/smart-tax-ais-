@@ -1,240 +1,23 @@
 
-import React, { useEffect, useReducer, useMemo, useState } from 'react';
-import { Calculator, Scale, ArrowRight } from 'lucide-react';
-import { TaxState } from './types';
-import { TAX_LAW, LAND_GRADE_TABLE, parseNumber, isLandLike, calculateDeadline, calculateTax } from './utils/taxCalculations';
+import React, { useState } from 'react';
+import { Scale } from 'lucide-react';
 import TaxForm from './components/TaxForm';
 import TaxResultView from './components/TaxResultView';
 import { NongteukseInfoModal, BisatoInfoModal, Pre1990CalcModal, InstallmentInfoModal } from './components/Modals';
 import ReportModal from './components/ReportModal';
 import FloatingBottomBar from './components/FloatingBottomBar';
-
-const INITIAL_STATE: TaxState = {
-    declarationType: 'regular',
-    reportDate: new Date().toISOString().split('T')[0],
-    paymentDate: new Date().toISOString().split('T')[0],
-    installmentInput: '',
-    
-    initialIncomeTax: '',
-    initialNongteukse: '',
-
-    hasPriorDeclaration: false,
-    priorIncomeAmount: '', 
-    priorTaxAmount: '',    
-
-    transferorInfo: { name: '', ssn: '', phone: '' },
-    transfereeInfo: { name: '', ssn: '' },
-    propertyAddress: '', 
-
-    assetType: '일반주택', // Set default
-    landArea: '',
-    landUseType: 'business',
-    isBisatoException: false,
-    
-    isPre1990: false,
-    price1990Jan1: '',
-    gradeAcq: '',
-    grade1990Aug30: '',
-    gradePrev1990Aug30: '',
-
-    acquisitionCause: 'sale', // Set default
-    origAcquisitionCause: 'sale', // Set default
-    yangdoCause: 'sale', // Set default
-    yangdoDate: new Date().toISOString().split('T')[0],
-    acquisitionDate: '',
-    origAcquisitionDate: '', 
-
-    giftEvaluationMethod: 'market',
-    giftValue: '',
-    burdenDebtDeposit: '',
-    burdenDebtLoan: '',
-    debtAmount: '',
-
-    yangdoPrice: '',
-    acqPriceMethod: 'actual',
-    acqPriceActual: { maega: '', acqTax: '', other: '', acqBrokerage: '' },
-    
-    officialPrice: '',
-    transferOfficialPrice: '',
-    unitOfficialPrice: '',
-    unitTransferOfficialPrice: '',
-
-    expenseMethod: 'actual',
-    expenseActual: { repair: '', sellBrokerage: '', other: '' },
-    deductionInput: '',
-    useActualExpenseWithConverted: false,
-
-    giftTaxPaid: '',
-
-    residenceYears: '',
-    useResidenceSpecial: false, 
-    taxExemptionType: 'none',
-    customRate: '', 
-    isNongteukseExempt: false,
-    
-    useCustomBasicDeduction: false,
-    basicDeductionInput: '2500000',
-
-    nongInstallmentInput: ''
-};
-
-function reducer(state: TaxState, action: any): TaxState {
-    if (action.type === 'SET') return { ...state, [action.field]: action.value };
-    if (action.type === 'SET_NESTED') {
-        return { 
-            ...state, 
-            [action.field]: { 
-                ...(state[action.field as keyof TaxState] as object), 
-                [action.subField]: action.value 
-            } 
-        };
-    }
-    if (action.type === 'RESET') return INITIAL_STATE;
-    return state;
-}
+import { useTaxState } from './src/hooks/useTaxState';
+import { useTaxCalculations } from './src/hooks/useTaxCalculations';
 
 export default function App() {
-    const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
-    const [showNongTooltip, setShowNongTooltip] = useState(false); 
+    const { state, set, setNested, reset } = useTaxState();
+    const [showNongTooltip, setShowNongTooltip] = useState(false);
     const [showBisatoTooltip, setShowBisatoTooltip] = useState(false);
     const [showInstallmentTooltip, setShowInstallmentTooltip] = useState(false);
     const [showPre1990CalcModal, setShowPre1990CalcModal] = useState(false);
     const [showReportModal, setShowReportModal] = useState(false);
 
-    const set = (field: string, value: any) => dispatch({ type: 'SET', field, value });
-    const setNested = (field: string, subField: string, value: any) => dispatch({ type: 'SET_NESTED', field, subField, value });
-
-    const isPre1985 = useMemo(() => {
-        const targetDate = (state.acquisitionCause === 'gift_carryover' && state.origAcquisitionDate)
-            ? state.origAcquisitionDate 
-            : state.acquisitionDate;
-
-        if (!targetDate) return false;
-        return new Date(targetDate) < new Date(TAX_LAW.LAND_CONVERSION_PRE_1985_DEEMED_ACQ_DATE);
-    }, [state.acquisitionDate, state.origAcquisitionDate, state.acquisitionCause]);
-
-    const result = useMemo(() => calculateTax(state), [state]);
-
-    // Side Effects
-    useEffect(() => {
-        if (['자경/대토 농지', '분양권', '미등기'].includes(state.assetType)) {
-             if (state.assetType === '자경/대토 농지') {
-                 set('taxExemptionType', 'farm_8y');
-             } else {
-                 if (state.taxExemptionType === 'public_cash_standard') set('taxExemptionType', 'none');
-             }
-        } else if (state.yangdoCause !== 'expropriation' && state.taxExemptionType === 'public_cash_standard') {
-            set('taxExemptionType', 'none');
-        }
-    }, [state.assetType, state.yangdoCause]);
-
-    useEffect(() => {
-        if (state.taxExemptionType === 'farm_8y') {
-            set('isNongteukseExempt', true);
-        } else if (state.taxExemptionType === 'none') {
-            set('isNongteukseExempt', false);
-        }
-    }, [state.taxExemptionType]);
-
-    useEffect(() => {
-        if (state.hasPriorDeclaration) {
-            set('useCustomBasicDeduction', true);
-            set('basicDeductionInput', '2500000');
-        } else {
-            if (state.basicDeductionInput === '2500000') {
-                 set('useCustomBasicDeduction', false);
-            }
-        }
-    }, [state.hasPriorDeclaration]);
-
-    useEffect(() => {
-        const targetDate = (state.acquisitionCause === 'gift_carryover' && state.origAcquisitionDate)
-            ? state.origAcquisitionDate 
-            : state.acquisitionDate;
-
-        if (targetDate) {
-            const acq = new Date(targetDate);
-            const refDate = new Date(TAX_LAW.LAND_CONVERSION_GRADE_DATE);
-            set('isPre1990', acq < refDate);
-        } else {
-            set('isPre1990', false);
-        }
-    }, [state.acquisitionDate, state.origAcquisitionDate, state.acquisitionCause]);
-    
-    useEffect(() => {
-        if (isLandLike(state.assetType) && state.isPre1990 && (state.acqPriceMethod === 'converted' || state.acqPriceMethod === 'official')) {
-            const p90_1_1_unit = parseNumber(state.price1990Jan1);
-            const v_acq_input = parseNumber(state.gradeAcq);
-            const v_90 = parseNumber(state.grade1990Aug30);
-            const v_prev = parseNumber(state.gradePrev1990Aug30);
-            
-            if (p90_1_1_unit > 0 && v_acq_input > 0 && v_90 > 0 && v_prev > 0) {
-                 const val_90 = LAND_GRADE_TABLE.get(v_90);
-                 const val_prev = LAND_GRADE_TABLE.get(v_prev);
-                 const val_acq = LAND_GRADE_TABLE.get(v_acq_input);
-                 const denominator = (val_90 + val_prev) / 2;
-                 if (denominator > 0) {
-                     const calcUnitPrice = Math.floor((p90_1_1_unit * val_acq) / denominator);
-                     set('unitOfficialPrice', calcUnitPrice);
-                 }
-            }
-        }
-    }, [state.price1990Jan1, state.gradeAcq, state.grade1990Aug30, state.gradePrev1990Aug30, state.assetType, state.isPre1990, state.acqPriceMethod]);
-
-    useEffect(() => {
-        if (['inheritance', 'gift', 'gift_carryover'].includes(state.acquisitionCause)) {
-            if (state.acqPriceMethod !== 'actual' && state.yangdoCause !== 'burden_gift') {
-                set('acqPriceMethod', 'actual');
-            }
-        }
-    }, [state.acquisitionCause]);
-
-    useEffect(() => {
-        if (state.yangdoCause === 'burden_gift') {
-            if (state.giftEvaluationMethod === 'official') {
-                set('acqPriceMethod', 'official');
-                set('useActualExpenseWithConverted', false);
-            } else {
-                if (state.acqPriceMethod === 'official') {
-                    set('acqPriceMethod', 'actual');
-                }
-            }
-        }
-    }, [state.yangdoCause, state.giftEvaluationMethod]);
-
-    useEffect(() => {
-        if (isLandLike(state.assetType) && (state.acqPriceMethod === 'converted' || state.acqPriceMethod === 'official')) {
-            const area = parseNumber(state.landArea);
-            const unitAcq = parseNumber(state.unitOfficialPrice);
-            const unitTransfer = parseNumber(state.unitTransferOfficialPrice);
-
-            if (area > 0 && unitAcq > 0) {
-                set('officialPrice', Math.floor(area * unitAcq));
-            }
-            if (area > 0 && unitTransfer > 0) {
-                set('transferOfficialPrice', Math.floor(area * unitTransfer));
-            }
-        }
-    }, [state.landArea, state.unitOfficialPrice, state.unitTransferOfficialPrice, state.assetType, state.acqPriceMethod]);
-
-    useEffect(() => {
-        if (state.declarationType === 'regular' && state.yangdoDate) {
-            set('paymentDate', calculateDeadline(state.yangdoDate));
-        }
-    }, [state.yangdoDate, state.declarationType]);
-
-    useEffect(() => {
-        if (state.yangdoCause === 'burden_gift') {
-            const deposit = parseNumber(state.burdenDebtDeposit);
-            const loan = parseNumber(state.burdenDebtLoan);
-            const totalDebt = deposit + loan;
-            
-            if (state.burdenDebtDeposit || state.burdenDebtLoan) {
-                set('debtAmount', totalDebt);
-            }
-            set('yangdoPrice', state.debtAmount);
-        }
-    }, [state.yangdoCause, state.debtAmount, state.burdenDebtDeposit, state.burdenDebtLoan]);
+    const { result, isPre1985 } = useTaxCalculations(state, set);
 
     const handlePre1990ModalChange = (field: string, value: any) => {
         if (field === 'maega') setNested('acqPriceActual', 'maega', value);
@@ -296,7 +79,7 @@ export default function App() {
                         <TaxResultView 
                             result={result} 
                             state={state} 
-                            onReset={() => dispatch({type: 'RESET'})}
+                            onReset={reset}
                             onPrint={() => setShowReportModal(true)}
                         />
                     </div>
