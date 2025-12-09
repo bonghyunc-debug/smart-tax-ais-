@@ -624,6 +624,8 @@ export function calculateExemptionLogic(tax: number, props: TaxState) {
     let amount = 0;
     let desc = '';
     let nongteukse = 0;
+    // 1세대1주택 여부는 주택 수, 조정대상지역 여부 등 세법상 요건을 이 코드에서 검증하지 않고
+    // 사용자가 입력/선택한 값(props.assetType 등)을 그대로 신뢰한다는 전제하에 계산만 수행한다.
     switch (props.taxExemptionType) {
         case 'farm_8y':
             amount = Math.min(tax, TAX_LAW.FARM_YEARLY_LIMIT);
@@ -789,17 +791,17 @@ export function calculateTax(props: TaxState): TaxResult {
   let highPriceLimit = TAX_LAW.HIGH_PRICE_LIMIT;
 
   if (props.assetType === '1세대1주택_고가주택') {
-      // 고가주택 비과세 계산 (9억->12억 초과분만 과세)
+      // 고가주택 비과세 계산 (12억원 이하 안분): 양도가액 대비 비과세 한도(12억)의 비율만큼 양도차익을 안분하여 비과세
       // 소득세법 §89 제1항 제3호 가목: 실제 양도가액(시가)을 기준으로 12억원 초과분만 과세
       // 부담부증여라고 하더라도 과세대상 gain 안분은 실제 양도가액(채무인수 포함) 기준으로 계산
-      const denominator = yangdoPrice > 0 ? yangdoPrice : 0;
+      const transferAmount = Math.max(0, yangdoPrice);
 
-      if (denominator <= highPriceLimit && denominator > 0) {
-          taxableGain = 0;
-      } else if (denominator > 0) {
-          taxableGain = Math.floor(rawGain * ((denominator - highPriceLimit) / denominator));
+      if (transferAmount > 0) {
+          const nonTaxableRatio = Math.min(1, highPriceLimit / transferAmount);
+          const nonTaxableGain = Math.floor(rawGain * nonTaxableRatio);
+          taxExemptGain = nonTaxableGain;
+          taxableGain = Math.max(0, rawGain - nonTaxableGain);
       }
-      taxExemptGain = rawGain - taxableGain;
   }
 
   const longTerm = shouldExcludeLTTD
