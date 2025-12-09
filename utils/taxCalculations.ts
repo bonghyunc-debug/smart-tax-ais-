@@ -542,10 +542,10 @@ export function calculateTax(props: TaxState): TaxResult {
 
   if (props.assetType === '1세대1주택_고가주택') {
       // 고가주택 비과세 계산 (9억->12억 초과분만 과세)
-      const priceForLimit = Math.max(yangdoPrice, giftValue);
-      const denominator = priceForLimit > 0 ? priceForLimit : 0;
-
       // 소득세법 §89 제1항 제3호 가목: 실제 양도가액(시가)을 기준으로 12억원 초과분만 과세
+      // 부담부증여라고 하더라도 과세대상 gain 안분은 실제 양도가액(채무인수 포함) 기준으로 계산
+      const denominator = yangdoPrice > 0 ? yangdoPrice : 0;
+
       if (denominator <= highPriceLimit && denominator > 0) {
           taxableGain = 0;
       } else if (denominator > 0) {
