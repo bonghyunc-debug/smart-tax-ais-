@@ -70,6 +70,9 @@ const getLTTDRateFromTable = (years: number, table: { minYears: number; maxYears
   return entry ? entry.rate : 0;
 };
 
+// 양도소득세 감면세액에 부과되는 농어촌특별세율 (조세특례제한법상 감면세액의 20%)
+const NONGTEUKSE_RATE_FOR_CGT_RELIEF = 0.2;
+
 // 무신고/과소신고/납부불성실 가산세율 (국세기본법 기준)
 const PENALTY_RATE_UNFILED = 0.2;
 const PENALTY_RATE_UNFILED_AGGR = 0.4;
@@ -800,7 +803,7 @@ export function calculateExemptionLogic(tax: number, props: TaxState) {
         const r = parseNumber(props.customRate);
         amount = Math.floor(tax * (r / 100));
         desc = `직접입력 감면 (${r}%)`;
-        if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * 0.20);
+        if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * NONGTEUKSE_RATE_FOR_CGT_RELIEF);
         return { amount, desc, nongteukse };
     }
 
@@ -820,7 +823,7 @@ export function calculateExemptionLogic(tax: number, props: TaxState) {
             // 공익사업 수용(현금 보상) 감면율: 2024.12.31.까지 10%, 2025.01.01. 이후 15% (소득세법 §104의3 및 부칙)
             amount = Math.floor(tax * rate);
             desc = `공익사업 수용(현금) (${rate*100}%)`;
-            if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * 0.20);
+            if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * NONGTEUKSE_RATE_FOR_CGT_RELIEF);
             break;
         }
         case 'public_project_replacement': {
@@ -829,7 +832,7 @@ export function calculateExemptionLogic(tax: number, props: TaxState) {
             const rate = isPost2025 ? 0.15 : 0.10;
             amount = Math.floor(tax * rate);
             desc = `공익사업 수용(대토) (${rate*100}%)`;
-            if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * 0.20);
+            if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * NONGTEUKSE_RATE_FOR_CGT_RELIEF);
             break;
         }
         case 'none':
