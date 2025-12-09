@@ -30,12 +30,19 @@ export const INITIAL_STATE: TaxState = {
   grade1990Aug30: '',
   gradePrev1990Aug30: '',
 
+  acquisitionOrigin: 'purchase',
   acquisitionCause: 'sale',
   origAcquisitionCause: 'sale',
   yangdoCause: 'sale',
   yangdoDate: new Date().toISOString().split('T')[0],
   acquisitionDate: '',
   origAcquisitionDate: '',
+
+  acquisitionLandOfficialUnitPrice: null,
+  acquisitionLandArea: null,
+
+  transferLandOfficialUnitPrice: null,
+  transferLandArea: null,
 
   giftEvaluationMethod: 'market',
   giftValue: '',

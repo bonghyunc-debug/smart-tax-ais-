@@ -126,6 +126,72 @@ export const parseNumber = (str: any) => {
 
 export const isLandLike = (type: string) => ['토지', '자경/대토 농지'].includes(type);
 
+// 매매/상속/증여/이월과세별 취득가액 계산을 분리하는 헬퍼
+function getBaseAcquisitionAmountByOrigin(props: TaxState): number {
+  const origin =
+    props.acquisitionOrigin ??
+    (props.acquisitionCause === 'gift_carryover'
+      ? 'gift_rollover'
+      : props.acquisitionCause === 'inheritance'
+      ? 'inheritance'
+      : props.acquisitionCause === 'gift'
+      ? 'gift'
+      : 'purchase');
+
+  const actualTotal =
+    parseNumber(props.acqPriceActual?.maega) +
+    parseNumber(props.acqPriceActual?.acqTax) +
+    parseNumber(props.acqPriceActual?.other) +
+    parseNumber(props.acqPriceActual?.acqBrokerage);
+  const officialTotal = parseNumber(props.officialPrice);
+  const giftEval = parseNumber(props.giftValue);
+
+  switch (origin) {
+    case 'inheritance':
+    case 'gift':
+      if (giftEval > 0) return giftEval;
+      if (officialTotal > 0) return officialTotal;
+      return actualTotal;
+    case 'gift_rollover':
+      if (actualTotal > 0) return actualTotal;
+      if (giftEval > 0) return giftEval;
+      return officialTotal;
+    case 'purchase':
+    default:
+      if (actualTotal > 0) return actualTotal;
+      return officialTotal;
+  }
+}
+
+// 토지 기준시가(전체 금액) 계산 헬퍼
+// - 1990.8.30 이전 취득 토지는 기존 환산로직(LAND_GRADE_TABLE 등)을 그대로 사용한다.
+// - 그 이후 취득 토지는 "공시지가(단가) × 면적"으로 기준시가를 계산한다.
+function getLandStandardPriceTotal(
+  props: TaxState,
+  kind: 'acquisition' | 'transfer',
+  convertedFromOldLogic?: number
+): number | null {
+  const isAcq = kind === 'acquisition';
+  const unitPrice = isAcq ? props.acquisitionLandOfficialUnitPrice : props.transferLandOfficialUnitPrice;
+  const area = isAcq ? props.acquisitionLandArea : props.transferLandArea;
+
+  const acqDate = new Date(props.acquisitionDate);
+  const referenceDate = new Date(TAX_LAW.LAND_CONVERSION_GRADE_DATE);
+
+  if (acqDate < referenceDate) {
+    if (typeof convertedFromOldLogic === 'number') {
+      return convertedFromOldLogic;
+    }
+    return null;
+  }
+
+  if (unitPrice != null && area != null) {
+    return unitPrice * area;
+  }
+
+  return null;
+}
+
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 const calcYearLengthFrom = (date: Date) => {
@@ -299,26 +365,17 @@ export function calculateAcquisitionPrice(props: TaxState, burdenRatio = 1) {
     const acqUnit = parseNumber(props.officialPrice);
     const landArea = parseNumber(props.landArea);
     const safeBurdenRatio = Math.min(1, Math.max(0, Number.isFinite(burdenRatio) ? burdenRatio : 0));
+    const baseAcquisitionAmount = getBaseAcquisitionAmountByOrigin(props);
+    const isLand = isLandLike(props.assetType);
 
-    let basePriceForExpense = acqUnit;
+    let basePriceForExpense = baseAcquisitionAmount;
 
-    if (props.acqPriceMethod === 'actual') {
-        const basePrice = parseNumber(props.acqPriceActual.maega) +
-                  parseNumber(props.acqPriceActual.acqTax) +
-                  parseNumber(props.acqPriceActual.other) + // Updated: use 'other'
-                  parseNumber(props.acqPriceActual.acqBrokerage);
-        const p = Math.floor(basePrice * safeBurdenRatio);
-        return { price: p, basePriceForExpense: basePrice, methodDesc: '실지취득가액' };
-    }
-
-    if (props.acqPriceMethod === 'official') {
-        const price = Math.floor(acqUnit * safeBurdenRatio);
-        return { price, basePriceForExpense, methodDesc: '기준시가(안분전)' };
-    }
+    let convertedLandStandard: number | null = null;
+    let convertedDesc = '';
 
     const transferUnit = parseNumber(props.transferOfficialPrice);
-    
-    if (isLandLike(props.assetType) && props.isPre1990) {
+
+    if (isLand && props.isPre1990) {
         const p90_1_1_unit = parseNumber(props.price1990Jan1);
         const v_acq_input = parseNumber(props.gradeAcq);
         const v_90_val = parseNumber(props.grade1990Aug30);
@@ -340,23 +397,66 @@ export function calculateAcquisitionPrice(props: TaxState, burdenRatio = 1) {
             });
 
             if (convertedUnit > 0) {
-                const totalAcqBase = Math.floor(convertedUnit * landArea);
-
-                basePriceForExpense = totalAcqBase;
-
-                const totalTransferOfficial = transferUnit;
-
-                const rawPrice = totalTransferOfficial > 0 ? Math.floor(yangdo * (totalAcqBase / totalTransferOfficial)) : 0;
-                const price = Math.floor(rawPrice * safeBurdenRatio);
-                let desc = isBefore85 ? '환산(85.1.1 의제등급)' : '환산(토지등급)';
-                return { price, basePriceForExpense, methodDesc: desc };
+                convertedLandStandard = Math.floor(convertedUnit * landArea);
+                convertedDesc = '1990년 토지 등급가액과 개별공시지가를 반영한 환산취득가액';
+                if (isBefore85) {
+                    convertedDesc += '(85.1.1 의제등급 반영)';
+                }
             }
         }
     }
 
-    const rawPrice = transferUnit > 0 ? Math.floor(yangdo * (acqUnit / transferUnit)) : 0;
+    const landStandardPrice = isLand
+        ? getLandStandardPriceTotal(props, 'acquisition', convertedLandStandard === null ? undefined : convertedLandStandard)
+        : null;
+    const landTransferStandard = isLand ? getLandStandardPriceTotal(props, 'transfer') : null;
+
+    const officialAcqTotal = isLand ? landStandardPrice ?? acqUnit : acqUnit;
+    const officialTransferTotal = isLand ? landTransferStandard ?? transferUnit : transferUnit;
+
+    if (props.acqPriceMethod === 'actual') {
+        const basePrice = baseAcquisitionAmount > 0 ? baseAcquisitionAmount : basePriceForExpense;
+        const p = Math.floor(basePrice * safeBurdenRatio);
+        return { price: p, basePriceForExpense: basePrice, methodDesc: '실지취득가액' };
+    }
+
+    if (props.acqPriceMethod === 'official') {
+        const priceBase = officialAcqTotal > 0 ? officialAcqTotal : baseAcquisitionAmount;
+        const price = Math.floor(priceBase * safeBurdenRatio);
+
+        let methodDesc = '취득 시 기준시가(전체금액) 입력값 사용';
+        if (isLand) {
+            if (convertedLandStandard != null && props.isPre1990) {
+                methodDesc = convertedDesc || '1990년 토지 등급가액과 개별공시지가를 반영한 환산취득가액';
+            } else if (landStandardPrice != null && props.acquisitionLandOfficialUnitPrice != null && props.acquisitionLandArea != null) {
+                methodDesc = `토지 기준시가 = 공시지가(단가) × 면적 (공시지가: ${formatNumber(props.acquisitionLandOfficialUnitPrice)}, 면적: ${formatNumber(props.acquisitionLandArea)}, 기준시가: ${formatNumber(landStandardPrice)})`;
+            }
+        }
+
+        return { price, basePriceForExpense: priceBase, methodDesc };
+    }
+
+    let convertedBase = officialAcqTotal > 0 ? officialAcqTotal : baseAcquisitionAmount;
+    let convertedPriceDesc = '환산취득가액(기준시가비율)';
+
+    let rawPrice = 0;
+
+    if (isLand && props.isPre1990 && convertedLandStandard != null) {
+        convertedBase = convertedLandStandard;
+        convertedPriceDesc = convertedDesc || convertedPriceDesc;
+        rawPrice = officialTransferTotal > 0 ? Math.floor(yangdo * (convertedLandStandard / officialTransferTotal)) : 0;
+    } else {
+        if (isLand && landStandardPrice != null && landTransferStandard != null && props.acquisitionLandOfficialUnitPrice != null && props.acquisitionLandArea != null) {
+            convertedPriceDesc = `토지 기준시가 = 공시지가(단가) × 면적 (공시지가: ${formatNumber(props.acquisitionLandOfficialUnitPrice)}, 면적: ${formatNumber(props.acquisitionLandArea)}, 기준시가: ${formatNumber(landStandardPrice)})`;
+        } else if (isLand) {
+            convertedPriceDesc = '취득 시 기준시가(전체금액) 입력값 사용';
+        }
+
+        rawPrice = officialTransferTotal > 0 && convertedBase > 0 ? Math.floor(yangdo * (convertedBase / officialTransferTotal)) : 0;
+    }
+
     const price = Math.floor(rawPrice * safeBurdenRatio);
-    return { price, basePriceForExpense: acqUnit, methodDesc: '환산취득가액(기준시가비율)' };
+    return { price, basePriceForExpense: convertedBase, methodDesc: convertedPriceDesc };
 }
 
 export function calculateLongTermDeduction(gain: number, years: number, props: TaxState) {
@@ -502,6 +602,59 @@ export function calculateExemptionLogic(tax: number, props: TaxState) {
     return { amount, desc, nongteukse };
 }
 
+// 세율·장특공·1세대1주택 판정에 사용할 보유기간 기산일을
+// 취득원인별로 분리해서 반환하는 헬퍼
+function getEffectiveAcquisitionDates(props: TaxState, transferDate: Date) {
+  const acqDate = new Date(props.acquisitionDate);
+  const origin = props.acquisitionOrigin ?? (props.acquisitionCause === 'gift_carryover' ? 'gift_rollover' : props.acquisitionCause === 'inheritance' ? 'inheritance' : props.acquisitionCause === 'gift' ? 'gift' : 'purchase');
+
+  // 기본값: 일반 매매
+  let forRate = acqDate;
+  let forLTTD = acqDate;
+  let forOneHouseHold = acqDate;
+  let forOneHouseRes = acqDate;
+
+  switch (origin) {
+    case 'inheritance': {
+      // TODO: 상속 개시일, 피상속인 취득일 필드가 프로젝트에 존재한다면
+      //       여기에서 사용하고, 없다면 우선 acqDate를 그대로 사용한다.
+      //       (이후 단계에서 상속 관련 추가 필드를 도입하여 보완)
+      // 세율(단기/장기, 중과 등) 보유기간: 피상속인 취득일부터 기산 예정
+      // 장특공: 상속개시일부터 기산 예정
+      // 1세대1주택: 동일세대 여부에 따라 통산 예정
+      if (props.origAcquisitionDate) {
+        forRate = new Date(props.origAcquisitionDate);
+        forOneHouseHold = new Date(props.origAcquisitionDate);
+        forOneHouseRes = new Date(props.origAcquisitionDate);
+      }
+      break;
+    }
+    case 'gift':
+      // 일반 증여는 현재는 증여일(acqDate) 기준으로 모두 동일 처리
+      break;
+    case 'gift_rollover':
+      if (props.origAcquisitionDate) {
+        forRate = new Date(props.origAcquisitionDate);
+        forLTTD = new Date(props.origAcquisitionDate);
+        forOneHouseHold = new Date(props.origAcquisitionDate);
+        forOneHouseRes = new Date(props.origAcquisitionDate);
+      }
+      // TODO: 이월과세의 경우, 증여자 취득일부터 기산할 수 있도록
+      //       이후 단계에서 donor 취득일 필드를 도입하여 보완한다.
+      break;
+    case 'purchase':
+    default:
+      break;
+  }
+
+  return {
+    forRate,
+    forLTTD,
+    forOneHouseHold,
+    forOneHouseRes,
+  };
+}
+
 export function calculateTax(props: TaxState): TaxResult {
   const applyDeemedDate = (dateStr?: string) => {
       if (!dateStr) return dateStr;
@@ -510,20 +663,17 @@ export function calculateTax(props: TaxState): TaxResult {
       return getEffectiveAcquisitionDate(parsed).toISOString().split('T')[0];
   };
 
-  // 1. 세율 적용을 위한 보유기간 (상속, 이월과세 모두 피상속인/증여자 당초 취득일 합산)
-  let startDateForRate = props.acquisitionDate;
-  if ((['inheritance', 'gift_carryover'].includes(props.acquisitionCause)) && props.origAcquisitionDate) {
-      startDateForRate = props.origAcquisitionDate;
-  }
-  const holdingForRate = calculatePeriod(applyDeemedDate(startDateForRate) || '', props.yangdoDate);
+  const toDateString = (date: Date) => {
+      if (!date || isNaN(date.getTime())) return '';
+      return date.toISOString().split('T')[0];
+  };
 
-  // 2. 장기보유특별공제를 위한 보유기간 (상속은 상속개시일, 이월과세는 당초취득일 기준)
-  let startDateForDed = props.acquisitionDate;
-  if (props.acquisitionCause === 'gift_carryover' && props.origAcquisitionDate) {
-      startDateForDed = props.origAcquisitionDate;
-  }
+  const transferDate = props.yangdoDate ? new Date(props.yangdoDate) : new Date(NaN);
+  const { forRate, forLTTD, forOneHouseHold, forOneHouseRes } = getEffectiveAcquisitionDates(props, transferDate);
 
-  const holdingForDed = calculatePeriod(applyDeemedDate(startDateForDed) || '', props.yangdoDate);
+  const holdingForRate = calculatePeriod(applyDeemedDate(toDateString(forRate)) || '', props.yangdoDate);
+
+  const holdingForDed = calculatePeriod(applyDeemedDate(toDateString(forLTTD)) || '', props.yangdoDate);
 
   // Burden Gift Logic
   const isBurdenGift = props.yangdoCause === 'burden_gift';

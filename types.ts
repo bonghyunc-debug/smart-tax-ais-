@@ -54,12 +54,19 @@ export interface TaxState {
   grade1990Aug30: string;
   gradePrev1990Aug30: string;
 
+  acquisitionOrigin?: 'purchase' | 'inheritance' | 'gift' | 'gift_rollover';
   acquisitionCause: string;
   origAcquisitionCause: 'sale' | 'inheritance' | 'gift';
   yangdoCause: string;
   yangdoDate: string;
   acquisitionDate: string;
   origAcquisitionDate: string;
+
+  acquisitionLandOfficialUnitPrice?: number | null;
+  acquisitionLandArea?: number | null;
+
+  transferLandOfficialUnitPrice?: number | null;
+  transferLandArea?: number | null;
   
   // Burden Gift Inputs
   giftEvaluationMethod: 'market' | 'official'; // 시가 vs 기준시가

@@ -368,6 +368,21 @@ export default function TaxForm({ state, result, set, setNested, handlers, isPre
                             ]}
                         />
                     </div>
+
+                    <div>
+                        <label className="block text-sm font-semibold text-slate-600 mb-3 ml-1">세법상 취득원인</label>
+                        <SelectionGrid
+                            cols={4}
+                            selectedId={state.acquisitionOrigin}
+                            onChange={(id) => set('acquisitionOrigin', id)}
+                            options={[
+                                { id: 'purchase', label: '매매', icon: <Briefcase size={18}/> },
+                                { id: 'inheritance', label: '상속', icon: <FileText size={18}/> },
+                                { id: 'gift', label: '증여', icon: <Gift size={18}/> },
+                                { id: 'gift_rollover', label: '증여(이월과세)', icon: <Layers size={18}/> },
+                            ]}
+                        />
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-6">
@@ -600,9 +615,48 @@ export default function TaxForm({ state, result, set, setNested, handlers, isPre
                             )}
 
                             <div className="grid grid-cols-2 gap-6">
-                                <NumberInput label="취득시 기준시가 (전체)" value={state.officialPrice} onChange={(v:any)=>set('officialPrice', v)} suffix="원" />
-                                {state.acqPriceMethod === 'converted' && (
-                                    <NumberInput label="양도시 기준시가 (전체)" value={state.transferOfficialPrice} onChange={(v:any)=>set('transferOfficialPrice', v)} suffix="원" />
+                                {state.assetType === '토지' ? (
+                                    <>
+                                        <NumberInput
+                                            label="(토지) 취득 시 공시지가(단가)"
+                                            value={state.acquisitionLandOfficialUnitPrice}
+                                            onChange={(v:any)=>set('acquisitionLandOfficialUnitPrice', v === '' ? null : parseNumber(v))}
+                                            suffix="원"
+                                            allowDecimal
+                                        >
+                                            <HelpTooltip
+                                                content={<div className="text-slate-300">단가 기준(1㎡ 또는 1평) 공시지가를 입력하세요.</div>}
+                                            />
+                                        </NumberInput>
+                                        <NumberInput
+                                            label="(토지) 취득 시 면적"
+                                            value={state.acquisitionLandArea}
+                                            onChange={(v:any)=>set('acquisitionLandArea', v === '' ? null : parseNumber(v))}
+                                            suffix="㎡"
+                                            allowDecimal
+                                        />
+                                        <NumberInput
+                                            label="(토지) 양도 시 공시지가(단가)"
+                                            value={state.transferLandOfficialUnitPrice}
+                                            onChange={(v:any)=>set('transferLandOfficialUnitPrice', v === '' ? null : parseNumber(v))}
+                                            suffix="원"
+                                            allowDecimal
+                                        />
+                                        <NumberInput
+                                            label="(토지) 양도 시 면적"
+                                            value={state.transferLandArea}
+                                            onChange={(v:any)=>set('transferLandArea', v === '' ? null : parseNumber(v))}
+                                            suffix="㎡"
+                                            allowDecimal
+                                        />
+                                    </>
+                                ) : (
+                                    <>
+                                        <NumberInput label="취득시 기준시가 (전체)" value={state.officialPrice} onChange={(v:any)=>set('officialPrice', v)} suffix="원" />
+                                        {state.acqPriceMethod === 'converted' && (
+                                            <NumberInput label="양도시 기준시가 (전체)" value={state.transferOfficialPrice} onChange={(v:any)=>set('transferOfficialPrice', v)} suffix="원" />
+                                        )}
+                                    </>
                                 )}
                             </div>
                         </div>
