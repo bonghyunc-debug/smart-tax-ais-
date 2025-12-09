@@ -74,7 +74,7 @@ export default function TaxResultView({ result, state, onReset, onPrint }: TaxRe
                 {/* 1. 양도차익 */}
                 <div className="bg-slate-50/50 rounded-2xl p-6 mb-6 border border-slate-100 hover:border-slate-200 transition-colors">
                     <div className="flex items-center gap-3 text-sm font-bold text-slate-900 mb-4 pb-3 border-b border-slate-100">
-                        <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white shadow-sm border border-slate-100 text-xs text-slate-600 font-bold">1</span> 
+                        <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white shadow-sm border border-slate-100 text-xs text-slate-600 font-bold">1</span>
                         양도차익
                     </div>
                     <ResultTableItem label="양도가액" value={result.yangdoPrice} bold />
@@ -87,10 +87,17 @@ export default function TaxResultView({ result, state, onReset, onPrint }: TaxRe
                 {/* 2. 과세표준 */}
                 <div className="bg-slate-50/50 rounded-2xl p-6 mb-6 border border-slate-100 hover:border-slate-200 transition-colors">
                     <div className="flex items-center gap-3 text-sm font-bold text-slate-900 mb-4 pb-3 border-b border-slate-100">
-                        <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white shadow-sm border border-slate-100 text-xs text-slate-600 font-bold">2</span> 
+                        <span className="flex items-center justify-center w-6 h-6 rounded-full bg-white shadow-sm border border-slate-100 text-xs text-slate-600 font-bold">2</span>
                         과세표준
                     </div>
-                    
+
+                    {state.assetType === '1세대1주택_고가주택' && (
+                        <div className="flex items-start gap-2 text-[12px] text-slate-500 bg-white border border-slate-100 rounded-xl px-3 py-2 mb-3">
+                            <Info size={14} className="text-slate-400 mt-0.5" />
+                            <span className="leading-relaxed">이 도구는 1세대1주택 여부(주택 수, 조정대상지역 여부, 일시적 2주택 특례 등)를 판정하지 않고, 사용자가 직접 선택한 결과에 따라 계산만 수행합니다.</span>
+                        </div>
+                    )}
+
                     {result.taxExemptGain > 0 && (
                         <ResultTableItem label="비과세분 차익" value={result.taxExemptGain} depth={1} colorClass="text-slate-500" subText="고가주택 초과분 제외" minus />
                     )}
@@ -208,6 +215,11 @@ export default function TaxResultView({ result, state, onReset, onPrint }: TaxRe
                                 <span className="font-mono tabular-nums font-bold">-{formatNumber(result.nongInstallmentValue)}</span>
                             </div>
                         )}
+
+                        <p className="text-xs text-slate-400 mt-3 whitespace-pre-line">
+                            가산세 감면 및 분납 계산은 국세기본법·농어촌특별세법 기준 단순화 로직에 따른 참고용입니다.
+                            실제 신고·고지 단계에서 산출되는 금액과 차이가 날 수 있습니다.
+                        </p>
                     </div>
                 </div>
                 
