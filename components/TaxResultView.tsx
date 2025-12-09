@@ -215,6 +215,11 @@ export default function TaxResultView({ result, state, onReset, onPrint }: TaxRe
                                 <span className="font-mono tabular-nums font-bold">-{formatNumber(result.nongInstallmentValue)}</span>
                             </div>
                         )}
+
+                        <p className="text-xs text-slate-400 mt-3 whitespace-pre-line">
+                            가산세 감면 및 분납 계산은 국세기본법·농어촌특별세법 기준 단순화 로직에 따른 참고용입니다.
+                            실제 신고·고지 단계에서 산출되는 금액과 차이가 날 수 있습니다.
+                        </p>
                     </div>
                 </div>
                 

@@ -174,6 +174,22 @@ export interface TaxResult {
   nongInstallmentValue: number;
   immediateNongteukse: number;
 
+  incomeTaxInstallment?: {
+    canInstall: boolean;
+    totalTax: number;
+    firstPayment: number;
+    secondPayment: number;
+    secondDueDate: Date;
+  };
+
+  nongTeukseInstallment?: {
+    canInstall: boolean;
+    totalTax: number;
+    firstPayment: number;
+    secondPayment: number;
+    secondDueDate: Date;
+  };
+
   totalImmediateBill: number;
   deadline: string;
   holdingForRate: { years: number; days: number; text: string };
