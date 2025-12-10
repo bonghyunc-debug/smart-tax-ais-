@@ -80,6 +80,29 @@ const PENALTY_RATE_UNDERFILED = 0.1;
 const PENALTY_RATE_UNDERFILED_AGGR = 0.4;
 const DAILY_LATE_PAYMENT_RATE = 0.00022; // 1일 0.022%
 
+export function determineSpecialRatePct(assetType: string, holdingPeriodYears: number): { ratePct: number | null; reason: string } {
+    const years = Number.isFinite(holdingPeriodYears) ? holdingPeriodYears : 0;
+
+    if (assetType === '미등기') {
+        return { ratePct: 70, reason: '미등기 70%' };
+    }
+
+    if (assetType === '분양권') {
+        if (years < 1) return { ratePct: 70, reason: '분양권 1년미만 70%' };
+        return { ratePct: 60, reason: '분양권 60%' };
+    }
+
+    if (assetType === '1세대1주택_고가주택' || assetType === '조합원입주권') {
+        if (years < 1) return { ratePct: 70, reason: '주택/입주권 1년미만 70%' };
+        if (years < 2) return { ratePct: 60, reason: '주택/입주권 2년미만 60%' };
+        return { ratePct: null, reason: '누진세율 적용' };
+    }
+
+    if (years < 1) return { ratePct: 50, reason: '1년미만 50%' };
+    if (years < 2) return { ratePct: 40, reason: '2년미만 40%' };
+    return { ratePct: null, reason: '누진세율 적용' };
+}
+
 type PenaltyInput = {
   incomeTaxBase: number;
   unpaidTax: number;
@@ -352,13 +375,19 @@ export const calculatePeriod = (startStr: string, endStr: string) => {
   return { years: computedYears, days: remainingDays, text: `${computedYears}년 ${remainingDays}일` };
 };
 
-export const calculateDeadline = (yangdoDateStr: string, customHolidays: string[] = []) => {
+export const calculateDeadline = (
+  yangdoDateStr: string,
+  customHolidays: string[] = [],
+  opts?: { yangdoCause?: TaxState['yangdoCause'] }
+) => {
   if (!yangdoDateStr) return '';
   const date = new Date(yangdoDateStr);
   if (isNaN(date.getTime())) return '';
 
   // 원칙: 양도일이 속하는 달의 말일부터 2개월 뒤 말일까지 신고·납부 (소득세법 §105, 국세기본법 §26의3)
-  const targetMonth = date.getMonth() + 2;
+  // 부담부증여는 3개월 적용
+  const monthsToAdd = opts?.yangdoCause === 'burden_gift' ? 3 : 2;
+  const targetMonth = date.getMonth() + monthsToAdd;
   const year = date.getFullYear() + Math.floor(targetMonth / 12);
   const month = targetMonth % 12;
   const lastDay = new Date(year, month + 1, 0);
@@ -434,8 +463,7 @@ export function calculatePenaltyDetails(input: PenaltyInput): PenaltyResult {
   );
 
   const totalPenaltyBeforeRelief = unreportedPenalty + underReportedPenalty + latePaymentPenalty;
-
-  return {
+  const basePenalty: PenaltyResult = {
     unreportedPenalty,
     underReportedPenalty,
     latePaymentPenalty,
@@ -443,6 +471,8 @@ export function calculatePenaltyDetails(input: PenaltyInput): PenaltyResult {
     totalPenaltyAfterRelief: totalPenaltyBeforeRelief,
     daysLate
   };
+
+  return applyPenaltyRelief(basePenalty, input);
 }
 
 function applyPenaltyRelief(base: PenaltyResult, input: PenaltyInput): PenaltyResult {
@@ -454,18 +484,18 @@ function applyPenaltyRelief(base: PenaltyResult, input: PenaltyInput): PenaltyRe
 
   if (input.filingType === 'amended' && underReported > 0) {
     const reliefRate = getAmendedReliefRate(monthsLate);
-    underReported = underReported * (1 - reliefRate);
+    underReported = Math.floor(underReported * (1 - reliefRate));
   }
 
   if (input.filingType === 'late' && unreported > 0) {
     const reliefRate = getLateReturnReliefRate(monthsLate);
-    unreported = unreported * (1 - reliefRate);
+    unreported = Math.floor(unreported * (1 - reliefRate));
   }
 
   const latePayment = base.latePaymentPenalty;
 
   const totalBefore = base.totalPenaltyBeforeRelief;
-  const totalAfter = unreported + underReported + latePayment;
+  const totalAfter = Math.floor(unreported + underReported + latePayment);
 
   return {
     ...base,
@@ -611,7 +641,7 @@ export function calculateAcquisitionPrice(props: TaxState, burdenRatio = 1) {
 
             if (convertedUnit > 0) {
                 convertedLandStandard = Math.floor(convertedUnit * landArea);
-                convertedDesc = '1990년 토지 등급가액과 개별공시지가를 반영한 환산취득가액';
+                convertedDesc = '1990년 토지 등급가액과 개별공시지가를 반영한 환산취득가액으로 계산했습니다.';
                 if (isBefore85) {
                     convertedDesc += '(85.1.1 의제등급 반영)';
                 }
@@ -709,6 +739,25 @@ function calculateGeneralTaxOnly(base: number, dateStr: string) {
     return Math.floor(base * (bracket.rate / 100) - bracket.deduction);
 }
 
+export function calcNonBusinessLandTax(taxBase: number, year: number) {
+    if (taxBase <= 0) return 0;
+    const brackets = year >= 2023 ? TAX_BRACKETS_2023 : TAX_BRACKETS_2022;
+
+    let tax = 0;
+    let prevLimit = 0;
+
+    for (const bracket of brackets) {
+        const segment = Math.min(taxBase, bracket.upTo) - prevLimit;
+        if (segment > 0) {
+            tax += segment * ((bracket.rate + 10) / 100);
+            prevLimit = bracket.upTo;
+        }
+        if (taxBase <= bracket.upTo) break;
+    }
+
+    return Math.floor(tax);
+}
+
 const isHeavyTaxedCase = (props: TaxState, years: number) => {
     const isBisato = isLandLike(props.assetType) && props.landUseType === 'non-business' && !props.isBisatoException;
     if (props.assetType === '미등기') return true;
@@ -725,78 +774,37 @@ export function calculateTaxRate(base: number, years: number, props: TaxState) {
     const yangdoDateStr = props.yangdoDate || new Date().toISOString().split('T')[0];
     const brackets = (yangdoDateStr >= '2023-01-01') ? TAX_BRACKETS_2023 : TAX_BRACKETS_2022;
     const baseHeavyFlag = isHeavyTaxedCase(props, years);
+    const specialRateInfo = determineSpecialRatePct(props.assetType, years);
+    const parsedYear = new Date(yangdoDateStr);
+    const taxYear = isNaN(parsedYear.getTime()) ? 2023 : parsedYear.getFullYear();
 
-    // 1. 미등기 (70%) - 비교과세 불필요 (가장 높음)
-    if (props.assetType === '미등기') return { tax: Math.floor(base * 0.70), rate: 70, desc: '미등기 70%', isHeavyTaxed: true };
-
-    // 2. 기본 세액 계산 (General Tax)
     const bracket = brackets.find(b => base <= b.upTo) || brackets[brackets.length - 1];
+    const isBisato = isLandLike(props.assetType) && props.landUseType === 'non-business';
+    const candidates: { tax: number; rate: number; desc: string; isHeavyTaxed: boolean }[] = [];
+
+    const baseDesc = props.isBisatoException && isBisato
+        ? `기본세율 (${bracket.rate}%) (비사업용 중과 제외: 예외 적용)`
+        : `기본세율 (${bracket.rate}%)`;
+
     const basicTax = Math.floor(base * (bracket.rate / 100) - bracket.deduction);
-    const basicDesc = `기본세율 (${bracket.rate}%)`;
+    candidates.push({ tax: basicTax, rate: bracket.rate, desc: baseDesc, isHeavyTaxed: baseHeavyFlag });
 
-    // 3. 비사업용 토지 중과세액 (Bisato Tax)
-    const isBisato = isLandLike(props.assetType) && props.landUseType === 'non-business' && !props.isBisatoException;
-    let bisatoTax = 0;
-    let bisatoDesc = '';
-
-    if (isBisato) {
-        const bisatoRate = bracket.rate + 10;
-        bisatoTax = Math.floor(base * (bisatoRate / 100) - bracket.deduction);
-        bisatoDesc = `기본(${bracket.rate}%)+10%중과`;
+    if (specialRateInfo.ratePct !== null) {
+        const rate = specialRateInfo.ratePct;
+        const shortDesc = specialRateInfo.reason;
+        candidates.push({ tax: Math.floor(base * (rate / 100)), rate, desc: shortDesc, isHeavyTaxed: baseHeavyFlag });
     }
 
-    // 4. 단기 양도 세액 (Short-term Tax)
-    let shortTermTax = 0;
-    let shortTermRate = 0;
-    let shortTermDesc = '';
-
-    if (props.assetType === '분양권') {
-        if (years < 1) { shortTermRate = 70; shortTermDesc = '분양권 1년미만 70%'; }
-        else { shortTermRate = 60; shortTermDesc = '분양권 60%'; }
-    } 
-    else if (props.assetType === '일반주택') {
-        if (years < 1) { shortTermRate = 70; shortTermDesc = '주택 1년미만 70%'; }
-        else if (years < 2) { shortTermRate = 60; shortTermDesc = '주택 2년미만 60%'; }
-    }
-    else if (props.assetType === '1세대1주택_고가주택') {
-        shortTermRate = 0; 
-        shortTermDesc = '1세대1주택(기본세율 적용)';
-    }
-    else {
-        // 토지, 상가 등 일반 자산
-        if (years < 1) { shortTermRate = 50; shortTermDesc = '1년미만 50%'; }
-        else if (years < 2) { shortTermRate = 40; shortTermDesc = '2년미만 40%'; }
+    const canApplyBisato = isBisato && !props.isBisatoException;
+    if (canApplyBisato) {
+        const bisatoTax = calcNonBusinessLandTax(base, taxYear);
+        candidates.push({ tax: bisatoTax, rate: bracket.rate + 10, desc: '비사업용 토지 중과(각 구간 +10%p)', isHeavyTaxed: true });
     }
 
-    if (shortTermRate > 0) {
-        shortTermTax = Math.floor(base * (shortTermRate / 100));
-    }
+    const winner = candidates.reduce((max, cur) => (cur.tax > max.tax ? cur : max), candidates[0]);
+    const reasonSuffix = !canApplyBisato && isBisato ? ' (비사업용 중과 제외 적용)' : '';
 
-    // 5. 비교 과세 (Comparative Taxation) - MAX 적용
-    
-    // Case A: 비사업용 토지
-    if (isBisato) {
-        // 비교 대상: [기본+10%] vs [단기세율(50% or 40%)]
-        // 단, 2년 이상 보유시 단기세율은 0이므로 자연스럽게 [기본+10%]가 선택됨
-        if (shortTermTax > bisatoTax) {
-            return { tax: shortTermTax, rate: shortTermRate, desc: `${shortTermDesc} (비사업용 중과보다 큼)`, isHeavyTaxed: true };
-        } else {
-            return { tax: bisatoTax, rate: bracket.rate + 10, desc: `${bisatoDesc} (비교과세 적용)`, isHeavyTaxed: true };
-        }
-    }
-
-    // Case B: 일반 자산 (토지, 상가, 주택 등)
-    if (shortTermTax > 0) {
-        // 비교 대상: [기본세율] vs [단기세율]
-        if (shortTermTax > basicTax) {
-            return { tax: shortTermTax, rate: shortTermRate, desc: shortTermDesc, isHeavyTaxed: baseHeavyFlag };
-        } else {
-            return { tax: basicTax, rate: bracket.rate, desc: `${basicDesc} (단기세율보다 큼)`, isHeavyTaxed: baseHeavyFlag };
-        }
-    }
-
-    // Case C: 그 외 (2년 이상 일반 자산)
-    return { tax: basicTax, rate: bracket.rate, desc: basicDesc, isHeavyTaxed: baseHeavyFlag };
+    return { ...winner, desc: `${winner.desc}${reasonSuffix}` };
 }
 
 const resolveReliefType = (props: TaxState): ReliefType => {
@@ -818,7 +826,6 @@ const resolveReliefType = (props: TaxState): ReliefType => {
 export function calculateExemptionLogic(tax: number, props: TaxState) {
     let amount = 0;
     let desc = '';
-    let nongteukse = 0;
     // 1세대1주택 여부는 주택 수, 조정대상지역 여부 등 세법상 요건을 이 코드에서 검증하지 않고
     // 사용자가 입력/선택한 값(props.assetType 등)을 그대로 신뢰한다는 전제하에 계산만 수행한다.
 
@@ -829,8 +836,6 @@ export function calculateExemptionLogic(tax: number, props: TaxState) {
         const r = parseNumber(props.customRate);
         amount = Math.floor(tax * (r / 100));
         desc = `직접입력 감면 (${r}%)`;
-        if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * NONGTEUKSE_RATE_FOR_CGT_RELIEF);
-        return { amount, desc, nongteukse };
     }
 
     switch (reliefType) {
@@ -849,7 +854,6 @@ export function calculateExemptionLogic(tax: number, props: TaxState) {
             // 공익사업 수용(현금 보상) 감면율: 2024.12.31.까지 10%, 2025.01.01. 이후 15% (소득세법 §104의3 및 부칙)
             amount = Math.floor(tax * rate);
             desc = `공익사업 수용(현금) (${rate*100}%)`;
-            if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * NONGTEUKSE_RATE_FOR_CGT_RELIEF);
             break;
         }
         case 'public_project_replacement': {
@@ -858,13 +862,16 @@ export function calculateExemptionLogic(tax: number, props: TaxState) {
             const rate = isPost2025 ? 0.15 : 0.10;
             amount = Math.floor(tax * rate);
             desc = `공익사업 수용(대토) (${rate*100}%)`;
-            if (!props.isNongteukseExempt) nongteukse = Math.floor(amount * NONGTEUKSE_RATE_FOR_CGT_RELIEF);
             break;
         }
         case 'none':
         default:
             break;
     }
+
+    const nongteukse = props.isNongteukseExempt
+        ? 0
+        : Math.floor(amount * NONGTEUKSE_RATE_FOR_CGT_RELIEF);
 
     return { amount, desc, nongteukse };
 }
@@ -1059,13 +1066,13 @@ export function calculateTax(props: TaxState): TaxResult {
   // 합산신고 시 기본공제는 합산 양도소득금액에서 1회만 공제되므로 직접입력 옵션 무시
   if (props.assetType === '미등기') {
       basicDed = 0;
-      basicDeductionNote = '미등기 자산은 기본공제 적용 제외';
+      basicDeductionNote = '미등기 양도는 기본공제 미적용';
   } else {
       if (isAggregationApplied) {
            // 합산신고 시에는 연간 250만원 공제 고정 (직접입력 옵션 무시)
            // 합산 양도소득금액 전체에서 1회만 공제
            // 사용자가 useCustomBasicDeduction을 설정했더라도 합산신고 우선 적용
-           basicDed = 2500000;
+           basicDed = TAX_LAW.BASIC_DEDUCTION;
            totalIncomeAmount += priorIncomeAmount;
            if (props.useCustomBasicDeduction) {
                basicDeductionNote = '합산신고 시 기본공제는 연 1회 250만원 고정 적용 (직접입력 값 무시됨)';
@@ -1101,6 +1108,10 @@ export function calculateTax(props: TaxState): TaxResult {
       finalTaxAmount = singleAssetResult.tax;
   }
 
+  if (basicDeductionNote) {
+      finalDesc = `${finalDesc} (${basicDeductionNote})`;
+  }
+
   const taxResult = { tax: finalTaxAmount, rate: finalRate, desc: finalDesc, isHeavyTaxed: singleAssetResult.isHeavyTaxed };
   // ----------------------------------------------------------------
 
@@ -1108,7 +1119,7 @@ export function calculateTax(props: TaxState): TaxResult {
   const exemption = calculateExemptionLogic(taxResult.tax, props);
   const decidedTax = Math.max(0, taxResult.tax - exemption.amount);
 
-  const deadline = calculateDeadline(props.yangdoDate);
+  const deadline = calculateDeadline(props.yangdoDate, [], { yangdoCause: props.yangdoCause });
   const deadlineDate = deadline ? new Date(deadline) : new Date();
 
   const safeDate = (value: string | null | undefined, fallback: Date) => {
