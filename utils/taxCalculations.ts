@@ -216,15 +216,31 @@ export const isLandLike = (type: string) => ['토지', '자경/대토 농지'].i
 
 // 매매/상속/증여/이월과세별 취득가액 계산을 분리하는 헬퍼
 function getBaseAcquisitionAmountByOrigin(props: TaxState): number {
-  const origin =
-    props.acquisitionOrigin ??
-    (props.acquisitionCause === 'gift_carryover'
-      ? 'gift_rollover'
-      : props.acquisitionCause === 'inheritance'
-      ? 'inheritance'
-      : props.acquisitionCause === 'gift'
-      ? 'gift'
-      : 'purchase');
+  // 이월과세(gift_carryover) 시 당초 증여자의 취득원인(origAcquisitionCause)을 참조
+  // 소득세법 제97조의2: 이월과세 적용 시 당초 증여자의 취득가액을 수증자의 취득가액으로 함
+  // 당초 증여자가 상속/증여로 취득한 경우와 매매로 취득한 경우 취득가액 산정 방식이 다름
+  let origin: 'purchase' | 'inheritance' | 'gift' | 'gift_rollover';
+  
+  if (props.acquisitionOrigin) {
+    origin = props.acquisitionOrigin;
+  } else if (props.acquisitionCause === 'gift_carryover') {
+    // 이월과세 시 당초 취득원인에 따라 origin 결정
+    const origCause = props.origAcquisitionCause;
+    if (origCause === 'inheritance') {
+      origin = 'inheritance';
+    } else if (origCause === 'gift') {
+      origin = 'gift';
+    } else {
+      // 당초 취득원인이 매매인 경우 (기본값)
+      origin = 'gift_rollover';
+    }
+  } else if (props.acquisitionCause === 'inheritance') {
+    origin = 'inheritance';
+  } else if (props.acquisitionCause === 'gift') {
+    origin = 'gift';
+  } else {
+    origin = 'purchase';
+  }
 
   const actualTotal =
     parseNumber(props.acqPriceActual?.maega) +
@@ -237,15 +253,18 @@ function getBaseAcquisitionAmountByOrigin(props: TaxState): number {
   switch (origin) {
     case 'inheritance':
     case 'gift':
+      // 상속/증여 취득: 평가액 > 기준시가 > 실지거래가액 순
       if (giftEval > 0) return giftEval;
       if (officialTotal > 0) return officialTotal;
       return actualTotal;
     case 'gift_rollover':
+      // 이월과세(당초 매매취득): 실지거래가액 > 평가액 > 기준시가 순
       if (actualTotal > 0) return actualTotal;
       if (giftEval > 0) return giftEval;
       return officialTotal;
     case 'purchase':
     default:
+      // 매매 취득: 실지거래가액 > 기준시가 순
       if (actualTotal > 0) return actualTotal;
       return officialTotal;
   }
@@ -554,6 +573,7 @@ export function calculateAcquisitionPrice(props: TaxState, burdenRatio = 1) {
     const safeBurdenRatio = Math.min(1, Math.max(0, Number.isFinite(burdenRatio) ? burdenRatio : 0));
     const baseAcquisitionAmount = getBaseAcquisitionAmountByOrigin(props);
     const isLand = isLandLike(props.assetType);
+    const isGiftCarryover = props.acquisitionCause === 'gift_carryover';
 
     let basePriceForExpense = baseAcquisitionAmount;
 
@@ -562,13 +582,19 @@ export function calculateAcquisitionPrice(props: TaxState, burdenRatio = 1) {
 
     const transferUnit = parseNumber(props.transferOfficialPrice);
 
+    // 이월과세의 경우 당초 취득일 기준으로 1990년 이전 여부 판단 (소득세법 제97조의2)
+    // 당초 증여자가 1990년 이전에 취득한 토지는 환산취득가액 적용
+    const effectiveAcqDate = isGiftCarryover && props.origAcquisitionDate 
+        ? props.origAcquisitionDate 
+        : props.acquisitionDate;
+
     if (isLand && props.isPre1990) {
         const p90_1_1_unit = parseNumber(props.price1990Jan1);
         const v_acq_input = parseNumber(props.gradeAcq);
         const v_90_val = parseNumber(props.grade1990Aug30);
         const v_prev = parseNumber(props.gradePrev1990Aug30);
 
-        const acqDateObj = new Date(props.acquisitionDate);
+        const acqDateObj = new Date(effectiveAcqDate);
         const date85 = new Date(TAX_CONSTANTS.OLD_ASSET_CONVERSION.PRE_1985);
         const isBefore85 = acqDateObj < date85;
 
@@ -918,17 +944,32 @@ export function calculateTax(props: TaxState): TaxResult {
 
   const shouldExcludeLTTD = isHeavyTaxedCase(props, holdingForRate.years);
 
-  // Burden Gift Logic
+  // ----------------------------------------------------------------
+  // 부담부증여(Burden Gift) 안분율 계산 로직
+  // ----------------------------------------------------------------
+  // 소득세법 제88조, 시행령 제159조: 부담부증여는 채무인수액(burdenDebt) 부분만 양도로 봄
+  // 안분율 = 채무인수액 / 증여재산평가액
+  // 
+  // 안분율 적용 범위 (일관성 유지):
+  // 1) 취득가액: calculateAcquisitionPrice 함수에서 burdenRatio 적용
+  // 2) 필요경비(개산공제): basePriceForExpense × 3% × burdenRatio
+  // 3) 필요경비(실비): actualExpenseSum × burdenRatio
+  // 
+  // 주의: 양도가액(yangdoPrice)은 안분 적용하지 않음 (채무인수액 = 양도가액으로 간주)
+  // ----------------------------------------------------------------
   const isBurdenGift = props.yangdoCause === 'burden_gift';
   const giftValue = parseNumber(props.giftValue);
   const debtAmount = parseNumber(props.debtAmount);
   
   let burdenRatio = 1;
   if (isBurdenGift && giftValue > 0) {
+      // 안분율 = 채무인수액 / 증여재산평가액 (최대 100%)
       burdenRatio = Math.min(1, debtAmount / giftValue);
   }
 
+  // 취득가액 계산 (부담부증여 시 안분율 적용됨)
   const acqData = calculateAcquisitionPrice(props, burdenRatio);
+  // 개산공제 = 취득 당시 기준시가 × 3% × 안분율
   const autoDeduction = Math.floor(acqData.basePriceForExpense * 0.03 * burdenRatio);
   
   let expense = 0;
@@ -1010,18 +1051,32 @@ export function calculateTax(props: TaxState): TaxResult {
 
   let totalIncomeAmount = currentIncomeAmount;
   let basicDed = TAX_LAW.BASIC_DEDUCTION;
+  let basicDeductionNote = ''; // 기본공제 적용 관련 안내 메시지
 
   // Basic Deduction Logic
+  // 우선순위: 1) 미등기(공제 없음) > 2) 합산신고(연 250만원 1회 적용) > 3) 직접입력
+  // 소득세법 제103조: 양도소득 기본공제는 해당 과세기간 연 1회 250만원 한도
+  // 합산신고 시 기본공제는 합산 양도소득금액에서 1회만 공제되므로 직접입력 옵션 무시
   if (props.assetType === '미등기') {
       basicDed = 0;
+      basicDeductionNote = '미등기 자산은 기본공제 적용 제외';
   } else {
       if (isAggregationApplied) {
-           // 합산신고 시에는 연간 250만원 공제 고정
+           // 합산신고 시에는 연간 250만원 공제 고정 (직접입력 옵션 무시)
+           // 합산 양도소득금액 전체에서 1회만 공제
+           // 사용자가 useCustomBasicDeduction을 설정했더라도 합산신고 우선 적용
            basicDed = 2500000;
            totalIncomeAmount += priorIncomeAmount;
+           if (props.useCustomBasicDeduction) {
+               basicDeductionNote = '합산신고 시 기본공제는 연 1회 250만원 고정 적용 (직접입력 값 무시됨)';
+           }
       } else if (props.useCustomBasicDeduction) {
           const customVal = parseNumber(props.basicDeductionInput);
+          // 직접입력 값이 법정 한도(250만원)를 초과하면 한도로 제한
           basicDed = Math.min(customVal, TAX_LAW.BASIC_DEDUCTION);
+          if (customVal > TAX_LAW.BASIC_DEDUCTION) {
+              basicDeductionNote = `직접입력 기본공제(${formatNumber(customVal)}원)가 법정한도 초과, 250만원 적용`;
+          }
       }
   }
 
@@ -1077,6 +1132,9 @@ export function calculateTax(props: TaxState): TaxResult {
   const isConverted = props.acqPriceMethod === 'converted';
 
   // 정확한 날짜 계산을 통한 5년 이내 여부 판정 (단순 연도 뺄셈인 holdingForRate.years < 5 대체)
+  // 세법상 "5년 이내"는 취득일로부터 5년이 되는 날 전일까지를 의미 (소득세법 시행령 제162조제6항)
+  // 예: 2020.1.1 취득 → 2024.12.31까지 양도 시 가산세 대상, 2025.1.1 양도 시 가산세 제외
+  // 참고: 국세기본법 제2조(기간계산)에 따라 "5년"은 취득일 다음날부터 기산하여 5년이 되는 날까지
   let isUnder5Years = false;
   if (props.acquisitionDate && props.yangdoDate) {
       const acqD = new Date(props.acquisitionDate);
@@ -1084,7 +1142,7 @@ export function calculateTax(props: TaxState): TaxResult {
       const limitD = new Date(acqD);
       limitD.setFullYear(limitD.getFullYear() + 5);
 
-      // 양도일이 5년 되는 날 이전까지만 가산세 대상 (소득세법 시행령 제162조제6항 해석)
+      // 양도일이 5년이 되는 날 미만일 때만 가산세 대상 (5년이 되는 날 포함 안함)
       isUnder5Years = yangdoD < limitD;
   }
 
