@@ -1173,7 +1173,7 @@ export function calculateTax(props: TaxState): TaxResult {
   const isUnderReportedIncome = filingType === 'amended' || (!isUnreported && additionalIncomeTaxBase > 0);
   const isUnderReportedNong = filingType === 'amended' || (!isUnreported && additionalNongBase > 0);
 
-  const incomePenaltyBase = calculatePenaltyDetails({
+  const incomePenaltyCalc = calculatePenaltyDetails({
     incomeTaxBase: decidedTax + constructionPenalty,
     unpaidTax: Math.max(0, additionalIncomeTaxBase),
     isUnreported,
@@ -1185,31 +1185,7 @@ export function calculateTax(props: TaxState): TaxResult {
     filingDate
   });
 
-  const incomePenaltyCalc = applyPenaltyRelief(incomePenaltyBase, {
-    incomeTaxBase: decidedTax + constructionPenalty,
-    unpaidTax: Math.max(0, additionalIncomeTaxBase),
-    isUnreported,
-    isUnderReported: isUnderReportedIncome,
-    isFraud: false,
-    dueDate: deadlineDate,
-    paymentDate,
-    filingType,
-    filingDate
-  });
-
-  const nongPenaltyBase = calculatePenaltyDetails({
-    incomeTaxBase: exemption.nongteukse,
-    unpaidTax: Math.max(0, additionalNongBase),
-    isUnreported,
-    isUnderReported: isUnderReportedNong,
-    isFraud: false,
-    dueDate: deadlineDate,
-    paymentDate,
-    filingType,
-    filingDate
-  });
-
-  const nongPenaltyCalc = applyPenaltyRelief(nongPenaltyBase, {
+  const nongPenaltyCalc = calculatePenaltyDetails({
     incomeTaxBase: exemption.nongteukse,
     unpaidTax: Math.max(0, additionalNongBase),
     isUnreported,
