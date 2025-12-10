@@ -4,5 +4,5 @@ export const TAX_CONSTANTS = {
     PRE_1985: '1985-01-01',
     PRE_1990: '1990-01-01',
   },
-  BASE_DEDUCTION: 25000000,
+  BASE_DEDUCTION: 2_500_000,
 };

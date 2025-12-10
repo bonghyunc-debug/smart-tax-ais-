@@ -136,9 +136,9 @@ export function useTaxCalculations(
 
   useEffect(() => {
     if (state.declarationType === 'regular' && state.yangdoDate) {
-      set('paymentDate', calculateDeadline(state.yangdoDate));
+      set('paymentDate', calculateDeadline(state.yangdoDate, [], { yangdoCause: state.yangdoCause }));
     }
-  }, [state.yangdoDate, state.declarationType, set]);
+  }, [state.yangdoDate, state.declarationType, state.yangdoCause, set]);
 
   useEffect(() => {
     if (state.yangdoCause === 'burden_gift') {
@@ -149,9 +149,9 @@ export function useTaxCalculations(
       if (state.burdenDebtDeposit || state.burdenDebtLoan) {
         set('debtAmount', totalDebt);
       }
-      set('yangdoPrice', state.debtAmount);
+      set('yangdoPrice', totalDebt);
     }
-  }, [state.yangdoCause, state.debtAmount, state.burdenDebtDeposit, state.burdenDebtLoan, set]);
+  }, [state.yangdoCause, state.burdenDebtDeposit, state.burdenDebtLoan, set]);
 
   return { result, isPre1985, errors };
 }
