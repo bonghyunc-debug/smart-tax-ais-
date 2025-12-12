@@ -1,0 +1,5 @@
+export type ScenarioKey =
+  | 'HOUSE_GENERAL'
+  | 'HOUSE_EXEMPT_EVIDENCE'
+  | 'HIGH_PRICE_HOUSE_EXEMPT'
+  | 'LAND_GENERAL';
